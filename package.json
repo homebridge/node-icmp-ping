@@ -3,10 +3,6 @@
   "version": "1.0.0",
   "description": "Bounded native ICMP Echo using Rust and Node-API",
   "author": "justjam2023 (Renzo Zanelli - renzo.zanelli6@gmail.com)",
-  "contributors": [
-    "Stephen Vickers",
-    "NoSpaceships Ltd"
-  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -30,8 +26,7 @@
     "README.md",
     "LICENSE",
     "docs/platforms.md",
-    "docs/releasing.md",
-    "docs/reference-inventory.md"
+    "docs/releasing.md"
   ],
   "engines": {
     "node": "^22.13.0 || ^24.0.0 || ^26.0.0"

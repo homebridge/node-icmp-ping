@@ -100,4 +100,4 @@ Optional timeout, attempt, TTL, and payload-size overrides may be added later. T
 
 ## License and attribution
 
-MIT. Project metadata and README organization were informed by the predecessor project credited in [the reference inventory](docs/reference-inventory.md). Its ping implementation, dependency architecture, session API, and callbacks were not copied.
+MIT. Copyright (c) 2026 Renzo Zanelli. The ICMP engine, packet codec, Node-API boundary, wrappers, tests, and build workflows were independently implemented for this project. Dependency licenses and generated-loader notices retain their applicable attribution.
