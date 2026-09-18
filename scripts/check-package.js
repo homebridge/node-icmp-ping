@@ -1,0 +1,10 @@
+'use strict';
+const { execFileSync } = require('node:child_process');
+const assert = require('node:assert/strict');
+const pack = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8', shell: process.platform === 'win32' }))[0];
+const files = pack.files.map(f => f.path);
+for (const name of ['package.json', 'index.js', 'index.mjs', 'index.d.ts', 'binding.js', 'README.md', 'LICENSE']) assert(files.includes(name), `Missing ${name}`);
+const pkg = require('../package.json');
+assert(files.some(f => f.endsWith('.node')) || Object.keys(pkg.optionalDependencies || {}).length === 6, 'Missing prebuilt binary distribution');
+assert(!files.some(f => /^(src|target|node_modules|test|scripts|\.github)\//.test(f)), 'Unexpected development files');
+console.log(`Validated ${files.length} package files`);
