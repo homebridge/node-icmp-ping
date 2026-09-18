@@ -1,0 +1,58 @@
+name: Prepare or publish npm release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag, matching package version; dispatch on this tag
+        required: true
+        type: string
+      publish:
+        description: Publish after validation (requires npm-production environment approval)
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - id: release
+        run: node scripts/release-check.js
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+  build:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+  publish:
+    if: inputs.publish
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    environment: npm-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.19.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-distribution
+          path: distribution
+      - name: Verify assembled tarballs and publish platform packages before root
+        env:
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+        run: |
+          node scripts/publish.js

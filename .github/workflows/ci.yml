@@ -1,0 +1,120 @@
+name: Build and test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  prebuild:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu, arch: x64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, arch: arm64 }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin, arch: x64 }
+          - { runner: macos-15, target: aarch64-apple-darwin, arch: arm64 }
+          - { runner: windows-2025, target: x86_64-pc-windows-msvc, arch: x64 }
+          - { runner: windows-11-arm, target: aarch64-pc-windows-msvc, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          architecture: ${{ matrix.arch }}
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Record actual Node and Rust versions and architecture
+        run: |
+          node -p "JSON.stringify({node:process.version,napi:process.versions.napi,arch:process.arch,platform:process.platform})"
+          rustc --version --verbose
+          cargo --version
+      - run: npm ci
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo test --locked
+      - run: npm run build -- --target ${{ matrix.target }}
+      - run: npm test
+      - name: Raw ICMP and resource tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          sudo "$(command -v node)" --test test/integration.test.js test/resources.test.js
+      - name: Raw ICMP and resource tests (Windows Administrator runner)
+        if: runner.os == 'Windows'
+        run: node --test test/integration.test.js test/resources.test.js
+      - name: Isolated Linux timeout and success cycles
+        if: runner.os == 'Linux'
+        run: sudo env PATH="$PATH" node scripts/linux-loss.js
+      - run: npm run package:check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          architecture: ${{ matrix.arch }}
+      - name: Verify Node 22 and test the same artifact
+        run: |
+          node -p "JSON.stringify({node:process.version,arch:process.arch})"
+          node -e "if(process.versions.node.split('.')[0] !== '22') process.exit(1)"
+          npm test
+      - name: Node 22 real ICMP (Unix)
+        if: runner.os != 'Windows'
+        run: sudo "$(command -v node)" --test test/integration.test.js
+      - name: Node 22 real ICMP (Windows)
+        if: runner.os == 'Windows'
+        run: node --test test/integration.test.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.x
+          architecture: ${{ matrix.arch }}
+      - name: Verify Node 26 and test the same artifact
+        run: |
+          node -p "JSON.stringify({node:process.version,arch:process.arch})"
+          node -e "if(process.versions.node.split('.')[0] !== '26') process.exit(1)"
+          npm test
+      - name: Node 26 real ICMP (Unix)
+        if: runner.os != 'Windows'
+        run: sudo "$(command -v node)" --test test/integration.test.js
+      - name: Node 26 real ICMP (Windows)
+        if: runner.os == 'Windows'
+        run: node --test test/integration.test.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: |
+            icmp_ping.*.node
+            binding.js
+          if-no-files-found: error
+  package:
+    needs: prebuild
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run create-npm-dirs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-*
+          path: artifacts
+      - run: npm run artifacts
+      - run: node scripts/assemble.js
+      - run: npm test
+      - run: npm run package:check
+      - run: node scripts/test-install.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-distribution
+          path: |
+            npm/
+            *.tgz
+          if-no-files-found: error
