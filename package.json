@@ -44,6 +44,7 @@
   },
   "scripts": {
     "build": "napi build --platform --release --js binding.js --dts native.d.ts && node scripts/check-generated.js",
+    "test:release": "node --test test/publish.test.js",
     "test": "node --test test/api.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:resources": "node --test test/resources.test.js",

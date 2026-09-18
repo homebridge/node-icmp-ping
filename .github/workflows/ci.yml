@@ -106,6 +106,7 @@ jobs:
           node-version: 24.x
           cache: npm
       - run: npm ci
+      - run: npm run test:release
       - run: npm run create-npm-dirs
       - uses: actions/download-artifact@v4
         with:
