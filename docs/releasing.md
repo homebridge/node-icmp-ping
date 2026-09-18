@@ -8,7 +8,7 @@ The napi-rs CLI creates six platform packages, collects the native artifacts, an
 
 Before a first publication, establish ownership of the unscoped root and all six platform package names and configure npm trusted publishing for each package. npm's first-package/bootstrap ownership and trusted-publisher setup must be completed separately; a registry 404 does not guarantee a name is available for publication. Do not add a long-lived token as a workaround.
 
-Configure the npm trusted publisher to use repository `justjam2013/node-icmp-ping`, workflow `publish.yml`, and environment `npm-production`. Configure that GitHub environment with required reviewers before enabling publication. No environment protection or npm trust has been configured by this task. Publication still requires explicit user authorization.
+Configure the npm trusted publisher to use repository `justjam2013/node-icmp-ping`, workflow `publish.yml`, and environment `npm-production`. The GitHub environment has been configured with `justjam2013` as a required reviewer. npm trust and first-package ownership have not been configured by this task. Publication still requires explicit user authorization.
 
 Release procedure:
 
