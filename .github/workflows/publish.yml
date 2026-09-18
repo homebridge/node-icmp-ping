@@ -36,6 +36,9 @@ jobs:
     if: inputs.publish
     needs: [validate, build]
     runs-on: ubuntu-24.04
+    concurrency:
+      group: npm-production-publication
+      cancel-in-progress: false
     environment: npm-production
     permissions:
       contents: read
