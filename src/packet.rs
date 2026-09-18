@@ -76,10 +76,11 @@ fn ipv4(packet: &[u8], quoted: bool) -> Option<(&[u8], IpAddr, IpAddr)> {
     Some((&packet[header..end], source, target))
 }
 
-fn quoted_v6(packet: &[u8]) -> Option<(&[u8], IpAddr)> {
+fn quoted_v6(packet: &[u8]) -> Option<(&[u8], IpAddr, IpAddr)> {
     if packet.len() < 40 || packet[0] >> 4 != 6 {
         return None;
     }
+    let source = IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).ok()?));
     let target = IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(&packet[24..40]).ok()?));
     let length = 40 + u16::from_be_bytes([packet[4], packet[5]]) as usize;
     let packet = &packet[..length.min(packet.len())];
@@ -88,7 +89,7 @@ fn quoted_v6(packet: &[u8]) -> Option<(&[u8], IpAddr)> {
     // Bound extension traversal; do not treat fragment bodies as an Echo header.
     for _ in 0..16 {
         if next == 58 {
-            return Some((packet.get(offset..)?, target));
+            return Some((packet.get(offset..)?, source, target));
         }
         let ext = packet.get(offset..)?;
         if ext.len() < 8 {
@@ -170,13 +171,13 @@ pub fn parse(bytes: &[u8], source: IpAddr, expected: &Expected<'_>) -> Option<Re
             .then_some(Reply::Echo);
     }
     let message = reason(v6, packet[0], packet[1])?;
-    let (quoted, destination) = if v6 {
+    let (quoted, quoted_source, destination) = if v6 {
         quoted_v6(&packet[8..])?
     } else {
-        let (quoted, _, destination) = ipv4(&packet[8..], true)?;
-        (quoted, destination)
+        ipv4(&packet[8..], true)?
     };
-    if destination != expected.target
+    if quoted_source != expected.local
+        || destination != expected.target
         || quoted.first() != Some(&if v6 { 128 } else { 8 })
         || quoted.get(1) != Some(&0)
         || !matches(quoted, expected.id, expected.seq)
@@ -335,6 +336,9 @@ mod tests {
         quote[4..6].copy_from_slice(&72u16.to_be_bytes());
         if let IpAddr::V6(a) = target {
             quote[24..40].copy_from_slice(&a.octets());
+        }
+        if let IpAddr::V6(a) = local {
+            quote[8..24].copy_from_slice(&a.octets());
         }
         quote.extend([58, 0, 0, 0, 0, 0, 0, 0]);
         quote.extend(echo(target, local, 15, 2, &payload));
