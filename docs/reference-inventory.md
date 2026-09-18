@@ -1,6 +1,6 @@
 # node-icmp-ping: reference inventory and architecture gate
 
-Inspected 2026-09-18. No new repository or implementation has been created.
+Historical inventory from before repository creation, inspected 2026-09-18. The user subsequently approved Administrator-only Windows raw ICMP. The implementation and current platform status are documented in README.md and platforms.md; the pre-implementation status below is retained as inventory history.
 
 ## Reference
 

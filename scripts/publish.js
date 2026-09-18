@@ -4,7 +4,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
-const expectedChannel = pkg.version.includes('-') ? 'next' : 'latest';
+const expectedChannel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
 assert.equal(process.env.CHANNEL, expectedChannel, 'Unsafe release channel');
 const files = fs.readdirSync('distribution').filter(f => f.endsWith('.tgz'));
 assert.equal(files.length, 7, 'Expected root and six platform tarballs');

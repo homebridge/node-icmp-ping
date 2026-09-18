@@ -61,10 +61,9 @@ pub fn operation_error(stage: &str, error: &io::Error) -> String {
     }
 }
 fn network_error(error: &io::Error) -> Option<&'static str> {
-    // ENETUNREACH/EHOSTUNREACH on Linux/BSD and Winsock equivalents.
-    match error.raw_os_error() {
-        Some(101 | 51 | 10051) => Some("Network unreachable"),
-        Some(113 | 65 | 10065) => Some("Host unreachable"),
+    match error.kind() {
+        io::ErrorKind::NetworkUnreachable => Some("Network unreachable"),
+        io::ErrorKind::HostUnreachable => Some("Host unreachable"),
         _ => None,
     }
 }
@@ -346,11 +345,11 @@ mod tests {
             );
         }
         assert_eq!(
-            network_error(&io::Error::from_raw_os_error(10051)),
+            network_error(&io::Error::from(io::ErrorKind::NetworkUnreachable)),
             Some("Network unreachable")
         );
         assert_eq!(
-            network_error(&io::Error::from_raw_os_error(10065)),
+            network_error(&io::Error::from(io::ErrorKind::HostUnreachable)),
             Some("Host unreachable")
         );
         assert_eq!(network_error(&io::Error::from_raw_os_error(5)), None);
