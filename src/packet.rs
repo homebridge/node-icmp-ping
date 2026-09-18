@@ -223,12 +223,14 @@ mod tests {
         assert_eq!(packet.len(), 64);
         assert_eq!(&packet[..2], &[8, 0]);
         assert_eq!(&packet[4..8], &[0x12, 0x34, 0, 2]);
+        assert_eq!(&packet[2..4], &[0xe5, 0xc9]);
         assert_eq!(checksum(&packet), 0);
     }
     #[test]
     fn encode_v6_and_pseudo_header() {
         let packet = echo(ip("::1"), ip("::1"), 0x1234, 2, &[0; 56]);
         assert_eq!(packet[0], 128);
+        assert_eq!(&packet[2..4], &[0x6d, 0x4d]);
         assert_eq!(packet.len(), 64);
         assert_eq!(
             checksum_v6(Ipv6Addr::LOCALHOST, Ipv6Addr::LOCALHOST, &packet),
