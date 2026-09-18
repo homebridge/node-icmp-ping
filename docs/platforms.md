@@ -8,8 +8,8 @@ Raw ICMP is the only v1 backend. Administrator privileges on Windows are accepte
 | Linux glibc arm64 | ubuntu-24.04-arm | Yes | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
 | macOS x64 | macos-15-intel | Yes | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
 | macOS arm64 | macos-15 | Yes (also local) | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
-| Windows x64 | windows-2025 | Pending | Pending 22/24/26 | Pending privileged IPv4/IPv6 | Pending |
-| Windows arm64 | windows-11-arm | Pending | Pending 22/24/26 | Pending privileged IPv4/IPv6 | Pending |
+| Windows x64 | windows-2025 | Yes | Yes: 22/24/26 | Yes: Administrator IPv4/IPv6 loopback | Yes |
+| Windows arm64 | windows-11-arm | Yes | Yes: 22/24/26 | Yes: Administrator IPv4/IPv6 loopback | Yes |
 
 All six native prebuild jobs passed in [run 35383061355](https://github.com/justjam2013/node-icmp-ping/actions/runs/35383061355), using Rust 1.98.1, Node 22.23.2, Node 24.20.0 (24.21.0 on Windows arm64), and Node 26.9.0. Every native artifact was loaded and used for real Echo on its matching architecture before upload. That run exposed a clean-install test setup error after native jobs passed; subsequent CI corrects that test and validates the assembled distribution. Consult the latest full CI result before releasing. Windows CI permission failure is a failing job, never a silently skipped test.
 
