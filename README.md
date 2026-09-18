@@ -93,11 +93,3 @@ npm pack --dry-run
 `npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
 Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes prebuilt assembly and trusted publishing setup.
-
-## Future configuration
-
-Optional timeout, attempt, TTL, and payload-size overrides may be added later. They are not accepted by v1. A Windows Echo API backend may be considered later for non-elevated operation; it is not included in v1.
-
-## License and attribution
-
-MIT. Copyright (c) 2026 Renzo Zanelli. The ICMP engine, packet codec, Node-API boundary, wrappers, tests, and build workflows were independently implemented for this project. Dependency licenses and generated-loader notices retain their applicable attribution.
