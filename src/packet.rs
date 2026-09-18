@@ -184,7 +184,19 @@ pub fn parse(bytes: &[u8], source: IpAddr, expected: &Expected<'_>) -> Option<Re
     {
         return None;
     }
-    // A minimal quote contains only the header. Validate any quoted payload bytes too.
+    // Correlate even a minimal quote with the exact request, including the
+    // ICMPv6 pseudo-header. This is additional finite-width correlation, not uniqueness.
+    let request = echo(
+        expected.target,
+        expected.local,
+        expected.id,
+        expected.seq,
+        expected.payload,
+    );
+    if quoted[2..4] != request[2..4] {
+        return None;
+    }
+    // Continue validating any payload bytes included in a longer quote.
     let data = &quoted[8..];
     if data.len() > expected.payload.len() || data != &expected.payload[..data.len()] {
         return None;
@@ -354,6 +366,94 @@ mod tests {
         assert_eq!(parse(&msg, router, &Expected { seq: 3, ..exp }), None);
         quote[41] = 255;
         assert_eq!(quoted_v6(&quote), None);
+    }
+    #[test]
+    fn minimal_negative_quote_rejects_another_payload() {
+        for (local, target, router) in [
+            (ip("192.0.2.1"), ip("192.0.2.2"), ip("192.0.2.3")),
+            (ip("2001:db8::1"), ip("2001:db8::2"), ip("2001:db8::3")),
+        ] {
+            let payload_a = [7; 57];
+            let payload_b = [8; 57];
+            let expected_a = Expected {
+                local,
+                target,
+                id: 15,
+                seq: 2,
+                payload: &payload_a,
+            };
+            let expected_b = Expected {
+                payload: &payload_b,
+                ..expected_a
+            };
+            let request_a = echo(target, local, 15, 2, &payload_a);
+            let request_b = echo(target, local, 15, 2, &payload_b);
+            assert_eq!(&request_a[4..8], &request_b[4..8]);
+            assert_ne!(&request_a[2..4], &request_b[2..4]);
+            for (request, actual, other) in [
+                (&request_a, &expected_a, &expected_b),
+                (&request_b, &expected_b, &expected_a),
+            ] {
+                // Keep the checksum identical while changing quoted payload bytes:
+                // longer quotes must still validate their payload independently.
+                let mut collision_payload = actual.payload.to_vec();
+                collision_payload[0] += 1;
+                collision_payload[2] -= 1;
+                let collision = Expected {
+                    payload: &collision_payload,
+                    ..*actual
+                };
+                assert_eq!(
+                    &echo(target, local, 15, 2, &collision_payload)[2..4],
+                    &request[2..4]
+                );
+                let quote = if target.is_ipv4() {
+                    wrap4(request, local, target)
+                } else {
+                    let mut quote = vec![0; 40];
+                    quote[0] = 0x60;
+                    quote[6] = 58;
+                    quote[4..6].copy_from_slice(&(request.len() as u16).to_be_bytes());
+                    if let (IpAddr::V6(local), IpAddr::V6(target)) = (local, target) {
+                        quote[8..24].copy_from_slice(&local.octets());
+                        quote[24..40].copy_from_slice(&target.octets());
+                    }
+                    quote.extend(request);
+                    quote
+                };
+                // Exercise both the minimum quote (no payload) and longer quotes.
+                let header = if target.is_ipv4() { 20 } else { 40 };
+                for payload_len in [0, 1, 57] {
+                    let mut message =
+                        vec![if target.is_ipv4() { 3 } else { 1 }, 1, 0, 0, 0, 0, 0, 0];
+                    message.extend(&quote[..header + 8 + payload_len]);
+                    let sum = match (router, local) {
+                        (IpAddr::V6(router), IpAddr::V6(local)) => {
+                            checksum_v6(router, local, &message)
+                        }
+                        _ => checksum(&message),
+                    };
+                    message[2..4].copy_from_slice(&sum.to_be_bytes());
+                    let packet = if target.is_ipv4() {
+                        wrap4(&message, router, local)
+                    } else {
+                        message
+                    };
+                    assert!(matches!(
+                        parse(&packet, router, actual),
+                        Some(Reply::Negative(_))
+                    ));
+                    if payload_len > 0 {
+                        assert_eq!(parse(&packet, router, &collision), None);
+                    }
+                    assert_eq!(
+                        parse(&packet, router, other),
+                        None,
+                        "family={target}, quoted payload={payload_len}"
+                    );
+                }
+            }
+        }
     }
     #[test]
     fn ipv4_options_and_fragments() {
