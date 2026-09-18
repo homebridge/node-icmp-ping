@@ -147,9 +147,12 @@ impl Transport for Raw {
     fn receive(&mut self, bytes: &mut [u8], wait: Duration) -> io::Result<(usize, IpAddr)> {
         self.socket
             .set_read_timeout(Some(wait.max(Duration::from_millis(1))))?;
-        self.socket
-            .recv_from(bytes)
-            .map(|(length, source)| (length, source.ip()))
+        let (length, source) = self.socket.recv_from(bytes)?;
+        #[cfg(target_os = "macos")]
+        if source.is_ipv4() {
+            packet::normalize_macos_ipv4(&mut bytes[..length]);
+        }
+        Ok((length, source.ip()))
     }
 }
 

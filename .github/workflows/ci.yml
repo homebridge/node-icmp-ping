@@ -41,7 +41,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked
-      - run: npm run build -- --target ${{ matrix.target }}
+      - run: npm run build
       - run: npm test
       - name: Raw ICMP and resource tests (Unix)
         if: runner.os != 'Windows'

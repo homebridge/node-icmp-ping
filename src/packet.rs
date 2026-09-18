@@ -371,3 +371,55 @@ mod tests {
         assert_eq!(reason(false, 8, 0), None);
     }
 }
+
+/// Darwin exposes outer IPv4 length/fragment fields in host order, with the
+/// header subtracted from length. Its ICMP handler also converts the quoted
+/// IPv4 length in negative responses. Restore wire form before protocol checks.
+/// Reference: Apple's XNU ip_input.c, ip_icmp.c and raw_ip.c.
+#[cfg(any(target_os = "macos", test))]
+pub fn normalize_macos_ipv4(bytes: &mut [u8]) {
+    if bytes.len() < 20 || bytes[0] >> 4 != 4 {
+        return;
+    }
+    let header = (bytes[0] as usize & 15) * 4;
+    if header < 20 || bytes.len() < header + 8 {
+        return;
+    }
+    let length = u16::from_ne_bytes([bytes[2], bytes[3]]) as usize + header;
+    if length > u16::MAX as usize {
+        return;
+    }
+    bytes[2..4].copy_from_slice(&(length as u16).to_be_bytes());
+    let fragment = u16::from_ne_bytes([bytes[6], bytes[7]]);
+    bytes[6..8].copy_from_slice(&fragment.to_be_bytes());
+    if matches!(bytes[header], 3 | 4 | 5 | 11 | 12) {
+        let offset = header + 8;
+        if bytes.len() >= offset + 20 && bytes[offset] >> 4 == 4 {
+            let length = u16::from_ne_bytes([bytes[offset + 2], bytes[offset + 3]]);
+            bytes[offset + 2..offset + 4].copy_from_slice(&length.to_be_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod macos_tests {
+    use super::*;
+    #[test]
+    fn restore_outer_and_quoted_headers() {
+        let mut bytes = vec![0u8; 56];
+        bytes[0] = 0x45;
+        bytes[9] = 1;
+        bytes[2..4].copy_from_slice(&36u16.to_ne_bytes());
+        bytes[6..8].copy_from_slice(&0x4000u16.to_ne_bytes());
+        bytes[20] = 3;
+        bytes[28] = 0x45;
+        bytes[30..32].copy_from_slice(&84u16.to_ne_bytes());
+        normalize_macos_ipv4(&mut bytes);
+        assert_eq!(u16::from_be_bytes([bytes[2], bytes[3]]), 56);
+        assert_eq!(u16::from_be_bytes([bytes[6], bytes[7]]), 0x4000);
+        assert_eq!(u16::from_be_bytes([bytes[30], bytes[31]]), 84);
+        for length in 0..28 {
+            normalize_macos_ipv4(&mut bytes[..length]);
+        }
+    }
+}

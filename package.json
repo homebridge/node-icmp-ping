@@ -3,17 +3,49 @@
   "version": "1.0.0",
   "description": "Bounded native ICMP Echo using Rust and Node-API",
   "author": "justjam2023 (Renzo Zanelli - renzo.zanelli6@gmail.com)",
-  "contributors": ["Stephen Vickers", "NoSpaceships Ltd"],
+  "contributors": [
+    "Stephen Vickers",
+    "NoSpaceships Ltd"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/justjam2013/node-icmp-ping.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/justjam2013/node-icmp-ping.git"
+  },
   "main": "index.js",
   "types": "index.d.ts",
-  "exports": { ".": { "types": "./index.d.ts", "import": "./index.mjs", "require": "./index.js" } },
-  "files": ["index.js", "index.mjs", "index.d.ts", "binding.js", "*.node", "README.md", "LICENSE"],
-  "engines": { "node": "^22.13.0 || ^24.0.0 || ^26.0.0" },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "binding.js",
+    "*.node",
+    "README.md",
+    "LICENSE",
+    "docs/platforms.md",
+    "docs/releasing.md",
+    "docs/reference-inventory.md"
+  ],
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || ^26.0.0"
+  },
   "napi": {
     "binaryName": "icmp_ping",
-    "targets": ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "aarch64-apple-darwin", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"]
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc"
+    ]
   },
   "scripts": {
     "build": "napi build --platform --release --js binding.js --dts native.d.ts && node scripts/check-generated.js",
@@ -24,6 +56,10 @@
     "artifacts": "napi artifacts",
     "create-npm-dirs": "napi create-npm-dirs"
   },
-  "devDependencies": { "@napi-rs/cli": "3.10.4" },
-  "publishConfig": { "access": "public" }
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

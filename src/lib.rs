@@ -8,7 +8,7 @@ use std::net::IpAddr;
 #[napi(object)]
 pub struct PingResult {
     pub success: bool,
-    // Nullable rather than Option, whose generated object field can be omitted.
+    // Explicit null rather than an optional/omitted property.
     pub latency: napi::bindgen_prelude::Either<f64, napi::bindgen_prelude::Null>,
     pub message: String,
 }
@@ -16,7 +16,6 @@ pub struct PingResult {
 pub struct PingTask {
     address: String,
 }
-#[napi]
 impl Task for PingTask {
     type Output = engine::Outcome;
     type JsValue = PingResult;
@@ -53,7 +52,7 @@ impl Task for PingTask {
         })
     }
 }
-#[napi]
+#[napi(ts_return_type = "Promise<PingResult>")]
 pub fn ping(ip: String) -> AsyncTask<PingTask> {
     AsyncTask::new(PingTask { address: ip })
 }
