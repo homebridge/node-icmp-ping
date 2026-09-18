@@ -1,0 +1,23 @@
+[package]
+name = "node-icmp-ping"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+description = "Bounded ICMP Echo for Node.js"
+repository = "https://github.com/justjam2013/node-icmp-ping"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+napi = { version = "3", default-features = false, features = ["napi9"] }
+napi-derive = "3"
+socket2 = { version = "0.6", features = ["all"] }
+getrandom = "0.3"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+strip = "symbols"
