@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "node-icmp-ping"
-version = "1.0.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "getrandom",
  "napi",

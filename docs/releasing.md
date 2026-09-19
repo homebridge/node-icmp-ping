@@ -6,9 +6,33 @@ The napi-rs CLI creates six platform packages, collects the native artifacts, an
 
 `Build and test` builds on native architecture runners, tests each artifact on Node 22/24/26, exercises privileged loopback Echo, and validates seven npm tarballs. The assembly job installs the root tarball and platform tarballs in a clean temporary project with install scripts disabled, then loads and runs real IPv4/IPv6 Echo. Linux timeout tests operate in an isolated network namespace, never changing the host firewall.
 
-Before a first publication, establish ownership of the unscoped root and all six platform package names and configure npm trusted publishing for each package. npm's first-package/bootstrap ownership and trusted-publisher setup must be completed separately; a registry 404 does not guarantee a name is available for publication. Do not add a long-lived token as a workaround.
+The first public release is `0.9.0-beta.1` (tag `v0.9.0-beta.1`): a GitHub prerelease and npm `next` release. The existing suffix-based policy is unchanged: future unsuffixed `1.0.0` uses `latest`; major zero alone does not imply a prerelease. Preparing this repository change does not create a tag, GitHub Release, or npm publication.
 
-Configure the npm trusted publisher to use repository `justjam2013/node-icmp-ping`, workflow `publish.yml`, and environment `npm-production`. The GitHub environment has been configured with `justjam2013` as a required reviewer. npm trust and first-package ownership have not been configured by this task. Publication still requires explicit user authorization.
+## One-time beta bootstrap
+
+1. Merge the version preparation PR only after green CI and review of all six native targets and seven package contents. Confirm the npm account can publish the unscoped root and all six platform names; a registry 404 does not guarantee availability. Arrange authenticated manual npm access (including required 2FA) separately. Do not store publication credentials in the repository or add a long-lived CI token as a workaround.
+2. After separate release approval, create the exact `v0.9.0-beta.1` tag on the reviewed commit and a matching non-draft GitHub Release with `prerelease: true`. Dispatch `Prepare or publish npm release` on that exact tag with the same `release_tag` and **`publish: false`**. Prepare-only still requires the tag and release metadata; it performs no npm publication.
+3. Review all target/runtime results. Download and retain the original `npm-distribution` artifact, recording the workflow run, tag, commit SHA, and a SHA-512 SRI manifest of the exact seven compressed `.tgz` files. Keep the tarballs together in `distribution/` at the matching checkout. The following is read-only apart from writing the manifest; it does not publish:
+
+   ```sh
+   node - <<'NODE' > beta-tarballs.json
+   const { preflight } = require('./scripts/publish.js');
+   console.log(JSON.stringify(preflight('distribution', 'next').map(
+     ({ name, version, channel, tarball, integrity }) =>
+       ({ name, version, channel, tarball, integrity })
+   ), null, 2));
+   NODE
+   ```
+
+   Review package names, exact versions, root optional dependencies, licenses/attribution, and file listings. Retain the manifest outside the distribution along with the original artifact before retention expires. Do not rebuild or repack these files for publication or recovery.
+4. After separate publication approval, perform the one-time authenticated **manual** bootstrap sequentially: all six native tarballs first, then the root. For each retained tarball, use `npm publish <exact-retained-tarball> --registry https://registry.npmjs.org/ --access public --tag next --provenance=false`. Do not run the OIDC publisher locally: it requests provenance. Manual bootstrap outside supported CI must not request automatic provenance or claim an OIDC provenance attestation. See npm's [provenance requirements](https://docs.npmjs.com/generating-provenance-statements/).
+5. Before each mutation, record the existing dist-tags from a fresh registry package-metadata read (or confirmed package absence); `lookup` returns null for an absent exact version, so it cannot supply that baseline on its own. Read the exact version with the exported `lookup(item)` helper, using the retained manifest entry. If the exact version already exists, require `verify(item, state)` to pass before skipping it. Immediately after **every** publish attempt (even an error), read back and verify the exact package name, `0.9.0-beta.1` version, SHA-512 `dist.integrity` against the retained tarball, and `next` tag. Also inspect `state.tags.latest`: it must not point to this beta, and any previously existing `latest` must remain unchanged (for a new package it should remain absent). Stop on any mismatch, unexpected tag, or registry failure; do not blindly retry or automatically repair tags. Only publish or accept the root after all six natives have passed verification. Do not overlap this manual bootstrap with any other publication; the workflow concurrency lock cannot serialize local manual commands.
+6. In a clean temporary project, install `node-icmp-ping@next` from npm with install scripts disabled, verify the installed root and selected native package are exactly `0.9.0-beta.1`, load the CommonJS and ESM API, and exercise real IPv4/IPv6 loopback Echo with the required privileges. Repeat on the supported target/runtime matrix before treating the beta as validated. Recheck all seven packages' integrity and dist-tags; `latest` must not have been unintentionally assigned.
+7. Once all seven packages exist and bootstrap verification succeeds, configure a [Trusted Publisher](https://docs.npmjs.com/trusted-publishers/) for **each** package: repository `justjam2013/node-icmp-ping`, workflow `publish.yml`, environment `npm-production`. Confirm the protected GitHub environment still requires its reviewer (`justjam2013`). All seven trust relationships are required before future publication via protected GitHub OIDC; do not configure only the root.
+
+For partial manual bootstrap recovery, reuse the original retained tarballs and manifest and apply the same preflight/read-back checks. Native builds are **not established to be byte-reproducible**. A fresh prepare-only dispatch may produce different bytes and is not a substitute for retained artifacts. Stop and investigate integrity differences. Do not dispatch `publish: true` merely to finish this bootstrap: that dispatch rebuilds the packages.
+
+## Future releases through protected GitHub OIDC
 
 Release procedure:
 
