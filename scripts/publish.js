@@ -4,6 +4,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
+const { rootName, nativeNames, tarballName } = require('./package-identity.js');
 const { createHash, randomUUID } = require('node:crypto');
 
 function integrity(bytes) {
@@ -11,17 +12,19 @@ function integrity(bytes) {
 }
 
 function preflight(directory, channel) {
+  assert.equal(pkg.name, rootName, 'Unexpected root package identity');
   const expectedChannel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
   assert.equal(channel, expectedChannel, 'Unsafe release channel');
   const files = fs.readdirSync(directory).filter(f => f.endsWith('.tgz'));
   assert.equal(files.length, 7, 'Expected root and six platform tarballs');
-  const root = `${pkg.name}-${pkg.version}.tgz`;
+  const root = tarballName(pkg.name, pkg.version);
   assert(files.includes(root));
   const packages = files.map(filename => {
     const tarball = path.join(directory, filename);
     const metadata = JSON.parse(execFileSync('tar', ['-xOf', tarball, 'package/package.json'], { encoding: 'utf8' }));
     assert.equal(metadata.version, pkg.version);
-    assert.equal(filename, `${metadata.name}-${metadata.version}.tgz`);
+    assert.equal(filename, tarballName(metadata.name, metadata.version));
+    assert.equal(metadata.publishConfig?.access, 'public', 'Scoped packages must be public');
     if (filename !== root) {
       const listing = execFileSync('tar', ['-tf', tarball], { encoding: 'utf8' });
       assert(listing.includes('.node'), `Missing native binding: ${filename}`);
@@ -31,6 +34,7 @@ function preflight(directory, channel) {
   const rootPackage = packages.find(p => p.name === pkg.name);
   const natives = packages.filter(p => p !== rootPackage);
   assert.equal(new Set(packages.map(p => p.name)).size, 7, 'Duplicate package names');
+  assert.deepEqual(Object.keys(rootPackage.metadata.optionalDependencies).sort(), [...nativeNames].sort(), 'Unexpected native dependency identities');
   for (const native of natives) {
     assert.equal(rootPackage.metadata.optionalDependencies[native.name], native.version, 'Root must require every intended native package');
   }

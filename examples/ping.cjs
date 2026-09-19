@@ -1,4 +1,4 @@
-const { ping } = require('node-icmp-ping');
+const { ping } = require('@homebridge/node-icmp-ping');
 (async () => {
   try {
     const results = await Promise.all(process.argv.slice(2).map(ip => ping(ip)));

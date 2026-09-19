@@ -1,5 +1,7 @@
 # Platform coverage
 
+The npm root is `@homebridge/node-icmp-ping` from [Homebridge](https://github.com/homebridge/node-icmp-ping). Each native package uses the same scoped base plus its platform, architecture, and ABI suffix; see the [seven-package identity table](releasing.md#package-identities-and-artifact-paths).
+
 Raw ICMP is the only v1 backend. Administrator privileges on Windows are accepted as a v1 limitation; Windows IP Helper Echo APIs are not used. A future backend could be added behind the engine boundary without changing `ping(ip)`.
 
 | Target | CI runner | Build | Node API CI | Real ICMP | Prebuilt artifact |
@@ -11,7 +13,7 @@ Raw ICMP is the only v1 backend. Administrator privileges on Windows are accepte
 | Windows x64 | windows-2025 | Yes | Yes: 22/24/26 | Yes: Administrator IPv4/IPv6 loopback | Yes |
 | Windows arm64 | windows-11-arm | Yes | Yes: 22/24/26 | Yes: Administrator IPv4/IPv6 loopback | Yes |
 
-All six native prebuild jobs passed in [run 35383061355](https://github.com/justjam2013/node-icmp-ping/actions/runs/35383061355), using Rust 1.98.1, Node 22.23.2, Node 24.19.0 on macOS x64, 24.20.0 on Linux/macOS arm64/Windows x64, 24.21.0 on Windows arm64, and Node 26.9.0. Every native artifact was loaded and used for real Echo on its matching architecture before upload. That run exposed a clean-install test setup error after native jobs passed; subsequent CI corrects that test and validates the assembled distribution. The corrected distribution, including clean installation and actual Echo from the installed tarball, passed in [run 35383836057](https://github.com/justjam2013/node-icmp-ping/actions/runs/35383836057). Consult the latest full CI result before releasing. Windows CI permission failure is a failing job, never a silently skipped test.
+All six native prebuild jobs passed in [run 35383061355](https://github.com/homebridge/node-icmp-ping/actions/runs/35383061355), using Rust 1.98.1, Node 22.23.2, Node 24.19.0 on macOS x64, 24.20.0 on Linux/macOS arm64/Windows x64, 24.21.0 on Windows arm64, and Node 26.9.0. Every native artifact was loaded and used for real Echo on its matching architecture before upload. That run exposed a clean-install test setup error after native jobs passed; subsequent CI corrects that test and validates the assembled distribution. The corrected distribution, including clean installation and actual Echo from the installed tarball, passed in [run 35383836057](https://github.com/homebridge/node-icmp-ping/actions/runs/35383836057). Consult the latest full CI result before releasing. Windows CI permission failure is a failing job, never a silently skipped test.
 
 The repeated-operation test performs 64 sequential calls on every target and checks bounded worker-environment shutdown. Linux x64/arm64 additionally exercise three IPv4/IPv6 timeout/success cycles in isolated namespaces; descriptor counts remained 22 → 22. Descriptor/handle counts are not instrumented on macOS or Windows. No Internet target is required for Echo success tests.
 
