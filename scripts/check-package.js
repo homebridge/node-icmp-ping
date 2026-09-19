@@ -5,6 +5,11 @@ const pack = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], { e
 const files = pack.files.map(f => f.path);
 for (const name of ['package.json', 'index.js', 'index.mjs', 'index.d.ts', 'binding.js', 'README.md', 'LICENSE']) assert(files.includes(name), `Missing ${name}`);
 const pkg = require('../package.json');
+const { rootName, nativeNames, tarballName } = require('./package-identity.js');
+assert.equal(pack.name, rootName);
+assert.equal(pack.filename, tarballName(pkg.name, pkg.version));
+assert.equal(pkg.publishConfig.access, 'public');
+if (pkg.optionalDependencies) assert.deepEqual(pkg.optionalDependencies, Object.fromEntries(nativeNames.map(name => [name, pkg.version])));
 assert(files.some(f => f.endsWith('.node')) || Object.keys(pkg.optionalDependencies || {}).length === 6, 'Missing prebuilt binary distribution');
 assert(!files.some(f => /^(src|target|node_modules|test|scripts|\.github)\//.test(f)), 'Unexpected development files');
 console.log(`Validated ${files.length} package files`);

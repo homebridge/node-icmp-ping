@@ -1,11 +1,11 @@
-# node-icmp-ping
+# @homebridge/node-icmp-ping
 
-`node-icmp-ping` performs ICMP Echo directly through a native Rust/Node-API implementation. It does not invoke the system `ping` executable.
+`@homebridge/node-icmp-ping` performs ICMP Echo directly through a native Rust/Node-API implementation. It does not invoke the system `ping` executable.
 
 ## Installation
 
 ```sh
-npm install node-icmp-ping
+npm install @homebridge/node-icmp-ping
 ```
 
 The repository is prepared for npm publication; no initial package has been published yet. Supported Node lines are 22.13+, 24.x, and 26.x. Node-API 9 works throughout this range; the Node 22 minimum also matches the napi-rs build CLI. Node 18 and 20 are not supported.
@@ -27,7 +27,7 @@ Prebuild targets are Linux glibc x64/arm64, macOS x64/arm64, and Windows MSVC x6
 ## API
 
 ```js
-const { ping } = require('node-icmp-ping');
+const { ping } = require('@homebridge/node-icmp-ping');
 const result = await ping('192.168.1.50');
 const ipv6 = await ping('2001:db8::50');
 ```
@@ -35,7 +35,7 @@ const ipv6 = await ping('2001:db8::50');
 ESM uses the same function:
 
 ```js
-import { ping } from 'node-icmp-ping';
+import { ping } from '@homebridge/node-icmp-ping';
 ```
 
 Only `ping(ip)` is exported. Supply exactly one IPv4 or IPv6 literal string. No DNS lookup occurs. Hostnames, bracketed URLs, and zone-qualified/scoped IPv6 strings are rejected. IP parsing automatically determines the address family. Link-local IPv6 requiring an interface scope is not supported by v1's plain-IP contract.

@@ -7,10 +7,11 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { integrity, preflight, lookup, publish } = require('../scripts/publish.js');
 const { version } = require('../package.json');
+const { rootName, packageNames, tarballName } = require('../scripts/package-identity.js');
 const { channel } = require('../scripts/release-policy.js');
 const releaseChannel = channel(version, version.includes('-'));
 const wrongChannel = releaseChannel === 'next' ? 'latest' : 'next';
-const items = Array.from({ length: 7 }, (_, i) => ({ name: i === 6 ? 'node-icmp-ping' : `native-${i}`, version, channel: releaseChannel, integrity: integrity(Buffer.from(`artifact-${i}`)) }));
+const items = packageNames.map((name, i) => ({ name, version, channel: releaseChannel, integrity: integrity(Buffer.from(`artifact-${i}`)) }));
 const state = item => ({ metadata: { name: item.name, version: item.version, dist: { integrity: item.integrity } }, tags: { [item.channel]: item.version } });
 function harness(count = 0) {
   const registry = new Map(items.slice(0, count).map(item => [item.name, state(item)]));
@@ -86,6 +87,9 @@ test('fresh registry request bypasses caches and validates exact metadata', asyn
   const urls = [];
   const fake = async (url, options) => {
     urls.push(String(url));
+    assert.equal(url.origin, 'https://registry.npmjs.org');
+    assert.equal(url.pathname, '/' + encodeURIComponent(items[0].name));
+    assert.equal(decodeURIComponent(url.pathname.slice(1)), items[0].name);
     assert.equal(options.cache, 'no-store');
     assert.equal(options.headers['Cache-Control'], 'no-cache, no-store');
     return { ok: true, status: 200, json: async () => ({ name: items[0].name, versions: { [version]: state(items[0]).metadata }, 'dist-tags': state(items[0]).tags }) };
@@ -116,13 +120,13 @@ test('preflight inspects all compressed tarballs and orders root last', () => {
     fs.mkdirSync(distribution);
     const optionalDependencies = Object.fromEntries(items.slice(0, 6).map(item => [item.name, item.version]));
     for (const item of [...items].reverse()) {
-      fs.writeFileSync(path.join(source, 'package/package.json'), JSON.stringify({ name: item.name, version: item.version, optionalDependencies }));
+      fs.writeFileSync(path.join(source, 'package/package.json'), JSON.stringify({ name: item.name, version: item.version, optionalDependencies, publishConfig: { access: 'public' } }));
       fs.writeFileSync(path.join(source, 'package/binding.node'), 'fixture');
-      execFileSync('tar', ['-czf', path.join(distribution, `${item.name}-${item.version}.tgz`), '-C', source, 'package']);
+      execFileSync('tar', ['-czf', path.join(distribution, tarballName(item.name, item.version)), '-C', source, 'package']);
     }
     const result = preflight(distribution, releaseChannel);
     assert.equal(result.length, 7);
-    assert.equal(result[6].name, 'node-icmp-ping');
+    assert.equal(result[6].name, rootName);
     for (const item of result) {
       const digest = execFileSync('openssl', ['dgst', '-sha512', '-binary', item.tarball]);
       assert.equal(item.integrity, `sha512-${digest.toString('base64')}`);
@@ -165,4 +169,58 @@ for (const [releaseVersion, prerelease, expected] of [
 ]) test(`release metadata policy for ${releaseVersion}`, () => {
   assert.equal(channel(releaseVersion, prerelease), expected);
   assert.throws(() => channel(releaseVersion, !prerelease), /prerelease flag mismatches/);
+});
+
+test('npm pack filenames and seven scoped manifests pass preflight', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scoped-pack-'));
+  try {
+    const source = path.join(dir, 'source');
+    const distribution = path.join(dir, 'distribution');
+    fs.mkdirSync(source);
+    fs.mkdirSync(distribution);
+    const optionalDependencies = Object.fromEntries(items.slice(0, 6).map(item => [item.name, item.version]));
+    for (const item of items) {
+      fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({
+        name: item.name, version, publishConfig: { access: 'public' },
+        ...(item.name === rootName ? { optionalDependencies } : {}),
+      }));
+      fs.writeFileSync(path.join(source, 'binding.node'), 'pack fixture, not executable');
+      const [packed] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', distribution], { cwd: source, encoding: 'utf8' }));
+      assert.equal(packed.filename, tarballName(item.name, version));
+      assert(!packed.filename.includes('@') && !packed.filename.includes('/'));
+    }
+    const packed = preflight(distribution, releaseChannel);
+    assert.deepEqual(packed.map(item => item.name).sort(), [...packageNames].sort());
+    assert.equal(packed.at(-1).name, rootName);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+for (const fault of ['unscoped native', 'foreign scope', 'unscoped root dependency', 'inexact dependency', 'private access', 'old tarball filename']) test(`preflight rejects ${fault}`, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scoped-reject-'));
+  try {
+    const source = path.join(dir, 'source');
+    const distribution = path.join(dir, 'distribution');
+    fs.mkdirSync(path.join(source, 'package'), { recursive: true });
+    fs.mkdirSync(distribution);
+    for (const [index, item] of items.entries()) {
+      const metadata = { name: item.name, version, publishConfig: { access: 'public' } };
+      if (item.name === rootName) {
+        metadata.optionalDependencies = Object.fromEntries(items.slice(0, 6).map(native => [native.name, version]));
+        if (fault === 'unscoped root dependency') {
+          delete metadata.optionalDependencies[items[0].name];
+          metadata.optionalDependencies[items[0].name.split('/')[1]] = version;
+        }
+        if (fault === 'inexact dependency') metadata.optionalDependencies[items[0].name] = `^${version}`;
+      }
+      if (index === 0 && fault === 'unscoped native') metadata.name = item.name.split('/')[1];
+      if (index === 0 && fault === 'foreign scope') metadata.name = item.name.replace('@homebridge/', '@other/');
+      if (index === 0 && fault === 'private access') metadata.publishConfig.access = 'restricted';
+      fs.writeFileSync(path.join(source, 'package/package.json'), JSON.stringify(metadata));
+      fs.writeFileSync(path.join(source, 'package/binding.node'), 'fixture');
+      const filename = index === 0 && fault === 'old tarball filename'
+        ? `${item.name.split('/')[1]}-${version}.tgz` : tarballName(item.name, version);
+      execFileSync('tar', ['-czf', path.join(distribution, filename), '-C', source, 'package']);
+    }
+    assert.throws(() => preflight(distribution, releaseChannel), /Unexpected|Scoped packages must be public|Root must require|Expected values to be strictly equal/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
