@@ -1,5 +1,5 @@
 {
-  "name": "node-icmp-ping",
+  "name": "@homebridge/node-icmp-ping",
   "version": "0.9.0-beta.1",
   "description": "Bounded native ICMP Echo using Rust and Node-API",
   "author": "justjam2023 (Renzo Zanelli - renzo.zanelli6@gmail.com)",
