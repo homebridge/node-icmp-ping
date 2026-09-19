@@ -89,7 +89,7 @@ jobs:
       - name: Node 26 real ICMP (Windows)
         if: runner.os == 'Windows'
         run: node --test test/integration.test.js
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: bindings-${{ matrix.target }}
           path: |
@@ -117,7 +117,7 @@ jobs:
       - run: npm test
       - run: npm run package:check
       - run: node scripts/test-install.js
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: npm-distribution
           path: |
