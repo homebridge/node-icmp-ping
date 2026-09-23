@@ -22,11 +22,16 @@
     "index.mjs",
     "index.d.ts",
     "binding.js",
-    "*.node",
     "README.md",
     "LICENSE",
     "docs/platforms.md",
-    "docs/releasing.md"
+    "docs/releasing.md",
+    "icmp_ping.linux-x64-gnu.node",
+    "icmp_ping.linux-arm64-gnu.node",
+    "icmp_ping.darwin-x64.node",
+    "icmp_ping.darwin-arm64.node",
+    "icmp_ping.win32-x64-msvc.node",
+    "icmp_ping.win32-arm64-msvc.node"
   ],
   "engines": {
     "node": "^22.13.0 || ^24.0.0 || ^26.0.0"
@@ -44,13 +49,11 @@
   },
   "scripts": {
     "build": "napi build --platform --release --js binding.js --dts native.d.ts && node scripts/check-generated.js",
-    "test:release": "node --test test/publish.test.js",
+    "test:release": "node --test test/publish.test.js test/packaging.test.js test/loader.test.js",
     "test": "node --test test/api.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:resources": "node --test test/resources.test.js",
-    "package:check": "node scripts/check-package.js",
-    "artifacts": "napi artifacts",
-    "create-npm-dirs": "napi create-npm-dirs"
+    "package:check": "node scripts/check-package.js"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.10.4"

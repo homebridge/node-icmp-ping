@@ -54,7 +54,7 @@ jobs:
         with:
           name: npm-distribution
           path: distribution
-      - name: Verify assembled tarballs and publish platform packages before root
+      - name: Verify retained bundled tarball and publish one package
         env:
           CHANNEL: ${{ needs.validate.outputs.channel }}
         run: |
