@@ -4,7 +4,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
-const { rootName, nativeNames, tarballName } = require('./package-identity.js');
+const { rootName, tarballName } = require('./package-identity.js');
 const { createHash, randomUUID } = require('node:crypto');
 
 function integrity(bytes) {
@@ -15,30 +15,14 @@ function preflight(directory, channel) {
   assert.equal(pkg.name, rootName, 'Unexpected root package identity');
   const expectedChannel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
   assert.equal(channel, expectedChannel, 'Unsafe release channel');
-  const files = fs.readdirSync(directory).filter(f => f.endsWith('.tgz'));
-  assert.equal(files.length, 7, 'Expected root and six platform tarballs');
-  const root = tarballName(pkg.name, pkg.version);
-  assert(files.includes(root));
-  const packages = files.map(filename => {
-    const tarball = path.join(directory, filename);
-    const metadata = JSON.parse(execFileSync('tar', ['-xOf', tarball, 'package/package.json'], { encoding: 'utf8' }));
-    assert.equal(metadata.version, pkg.version);
-    assert.equal(filename, tarballName(metadata.name, metadata.version));
-    assert.equal(metadata.publishConfig?.access, 'public', 'Scoped packages must be public');
-    if (filename !== root) {
-      const listing = execFileSync('tar', ['-tf', tarball], { encoding: 'utf8' });
-      assert(listing.includes('.node'), `Missing native binding: ${filename}`);
-    } else { assert.equal(Object.keys(metadata.optionalDependencies).length, 6); }
-    return { name: metadata.name, version: metadata.version, channel, tarball, integrity: integrity(fs.readFileSync(tarball)), metadata };
-  });
-  const rootPackage = packages.find(p => p.name === pkg.name);
-  const natives = packages.filter(p => p !== rootPackage);
-  assert.equal(new Set(packages.map(p => p.name)).size, 7, 'Duplicate package names');
-  assert.deepEqual(Object.keys(rootPackage.metadata.optionalDependencies).sort(), [...nativeNames].sort(), 'Unexpected native dependency identities');
-  for (const native of natives) {
-    assert.equal(rootPackage.metadata.optionalDependencies[native.name], native.version, 'Root must require every intended native package');
-  }
-  return [...natives, rootPackage];
+  const filename = tarballName(pkg.name, pkg.version);
+  assert.deepEqual(fs.readdirSync(directory).sort(), [filename, 'integrity.json'].sort(), 'Expected one tarball and its retained integrity record');
+  const tarball = path.join(directory, filename);
+  const record = JSON.parse(fs.readFileSync(path.join(directory, 'integrity.json'), 'utf8'));
+  const digest = integrity(fs.readFileSync(tarball));
+  assert.deepEqual(record, { name: pkg.name, version: pkg.version, filename, integrity: digest }, 'Retained tarball SHA-512 or identity mismatch');
+  const metadata = require('./check-package.js').inspectTarball(tarball);
+  return { name: metadata.name, version: metadata.version, channel, tarball, integrity: digest, metadata };
 }
 
 // Read the full packument directly, bypassing npm's local cache and requesting
@@ -72,26 +56,25 @@ function verify(item, state) {
   assert.equal(state.tags[item.channel], item.version, `Dist-tag drift for ${label}: expected ${item.channel} to point to ${item.version}; no automatic repair`);
 }
 
-async function publish(packages, { read = lookup, write = item => {
+async function publish(item, { read = lookup, write = item => {
+  assert.equal(integrity(fs.readFileSync(item.tarball)), item.integrity, 'Tarball changed after preflight');
   execFileSync('npm', ['publish', item.tarball, '--registry', 'https://registry.npmjs.org/', '--access', 'public', '--provenance', '--tag', item.channel], { stdio: 'inherit' });
 }, log = console.log } = {}) {
-  for (const item of packages) {
-    const existing = await read(item);
-    if (existing) {
-      verify(item, existing);
-      log(`Verified already published ${item.name}@${item.version}`);
-      continue;
-    }
-    let publishError;
-    try { await write(item); } catch (error) { publishError = error; }
-    // Even a failed client response may have followed a committed publication.
-    // Never retry the mutation here; fresh registry state is the sole proof.
-    try { verify(item, await read(item)); } catch (error) {
-      if (publishError) throw new Error(`npm publish failed and read-back could not verify ${item.name}@${item.version}: ${error.message}`, { cause: publishError });
-      throw error;
-    }
-    log(`Verified publication ${item.name}@${item.version}`);
+  const existing = await read(item);
+  if (existing) {
+    verify(item, existing);
+    log(`Verified already published ${item.name}@${item.version}`);
+    return;
   }
+  let publishError;
+  try { await write(item); } catch (error) { publishError = error; }
+  // Even a failed client response may have followed a committed publication.
+  // Never retry the mutation here; fresh registry state is the sole proof.
+  try { verify(item, await read(item)); } catch (error) {
+    if (publishError) throw new Error(`npm publish failed and read-back could not verify ${item.name}@${item.version}: ${error.message}`, { cause: publishError });
+    throw error;
+  }
+  log(`Verified publication ${item.name}@${item.version}`);
 }
 
 if (require.main === module) {

@@ -58,7 +58,6 @@ jobs:
       - name: Isolated Linux timeout and success cycles
         if: runner.os == 'Linux'
         run: sudo env PATH="$PATH" node scripts/linux-loss.js
-      - run: npm run package:check
       - uses: actions/setup-node@v7
         with:
           node-version: 22.x
@@ -107,20 +106,44 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:release
-      - run: npm run create-npm-dirs
       - uses: actions/download-artifact@v8
         with:
           pattern: bindings-*
           path: artifacts
-      - run: npm run artifacts
       - run: node scripts/assemble.js
       - run: npm test
       - run: npm run package:check
-      - run: node scripts/test-install.js
       - uses: actions/upload-artifact@v7
         with:
           name: npm-distribution
-          path: |
-            npm/
-            *.tgz
+          path: distribution/
           if-no-files-found: error
+
+  install:
+    name: Install bundled tarball (${{ matrix.runner }}, Node ${{ matrix.node }})
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22.x, 24.x, 26.x]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15, windows-2025, windows-11-arm]
+        include:
+          - { runner: ubuntu-24.04, arch: x64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+          - { runner: macos-15, arch: arm64 }
+          - { runner: windows-2025, arch: x64 }
+          - { runner: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.arch }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-distribution
+          path: distribution
+      - name: Verify retained bytes and test offline installation with scripts disabled
+        run: node scripts/test-install.js

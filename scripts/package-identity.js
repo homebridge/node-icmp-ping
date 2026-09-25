@@ -1,16 +1,20 @@
 'use strict';
 const assert = require('node:assert/strict');
 const rootName = '@homebridge/node-icmp-ping';
-const platforms = [
-  'linux-x64-gnu', 'linux-arm64-gnu',
-  'darwin-x64', 'darwin-arm64',
-  'win32-x64-msvc', 'win32-arm64-msvc',
-];
-const nativeNames = platforms.map(platform => `${rootName}-${platform}`);
-const packageNames = [...nativeNames, rootName];
+const targets = {
+  'x86_64-unknown-linux-gnu': 'linux-x64-gnu',
+  'aarch64-unknown-linux-gnu': 'linux-arm64-gnu',
+  'x86_64-apple-darwin': 'darwin-x64',
+  'aarch64-apple-darwin': 'darwin-arm64',
+  'x86_64-pc-windows-msvc': 'win32-x64-msvc',
+  'aarch64-pc-windows-msvc': 'win32-arm64-msvc',
+};
+const platforms = Object.values(targets);
+const binaries = platforms.map(platform => `icmp_ping.${platform}.node`);
+const packageFiles = ['package.json', 'index.js', 'index.mjs', 'index.d.ts', 'binding.js',
+  'README.md', 'LICENSE', 'docs/platforms.md', 'docs/releasing.md', ...binaries];
 function tarballName(name, version) {
-  assert(packageNames.includes(name), `Unexpected distribution package: ${name}`);
-  // npm pack removes the leading @ and replaces the scope separator with -.
+  assert.equal(name, rootName, `Unexpected distribution package: ${name}`);
   return `${name.slice(1).replace('/', '-')}-${version}.tgz`;
 }
-module.exports = { rootName, platforms, nativeNames, packageNames, tarballName };
+module.exports = { rootName, targets, platforms, binaries, packageFiles, tarballName };
