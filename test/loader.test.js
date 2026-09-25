@@ -11,8 +11,8 @@ function load(platform, arch, { musl = false, missing = false, report = false } 
   const binding = { ping() {} };
   const suffix = platform === 'linux' ? `-${musl ? 'musl' : 'gnu'}` : platform === 'win32' ? '-msvc' : '';
   const filename = `./icmp_ping.${platform}-${arch}${suffix}.node`;
-  const supported = ['linux', 'darwin', 'win32'].includes(platform) && ['x64', 'arm64'].includes(arch) && !musl;
-  const process = { platform, arch, env: {}, report: { getReport: () => ({ header: musl ? {} : { glibcVersionRuntime: '2.39' }, sharedObjects: musl ? ['/lib/ld-musl-x86_64.so.1'] : [] }) } };
+  const supported = ['linux', 'darwin', 'win32'].includes(platform) && ['x64', 'arm64'].includes(arch);
+  const process = { platform, arch, env: {}, report: { getReport: () => ({ header: musl ? {} : { glibcVersionRuntime: '2.39' }, sharedObjects: musl ? [`/lib/ld-musl-${arch === 'arm64' ? 'aarch64' : 'x86_64'}.so.1`] : [] }) } };
   const requireBinding = name => {
     requested.push(name);
     if (name === 'fs') return { readFileSync: () => { if (report) throw new Error('ldd unavailable'); return musl ? 'musl libc' : 'GNU libc'; } };
@@ -44,9 +44,9 @@ for (const platform of ['linux', 'darwin', 'win32']) for (const arch of ['x64', 
 }
 for (const report of [false, true]) for (const arch of ['x64', 'arm64']) test(`musl ${arch}, report=${report}, never loads glibc`, () => {
   const result = load('linux', arch, { musl: true, report });
-  assert.equal(result.error.code, 'ERR_ICMP_NATIVE_BINDING');
-  assert.match(result.error.message, /musl .*unsupported/);
-  assert(result.error.cause);
+  assert.ifError(result.error);
+  assert.equal(typeof result.api.ping, 'function');
+  assert(!result.requested.some(name => name.startsWith('@homebridge/')));
   assert(result.requested.includes(`./icmp_ping.linux-${arch}-musl.node`));
   assert(!result.requested.some(name => name.includes('-gnu')));
 });
@@ -63,4 +63,12 @@ test('missing supported binary preserves the generated error as cause', () => {
 });
 test('generated libc report fallback still selects glibc', () => {
   assert.ifError(load('linux', 'arm64', { report: true }).error);
+});
+
+for (const arch of ['x64', 'arm64']) test(`missing musl ${arch} never falls back to glibc`, () => {
+  const result = load('linux', arch, { musl: true, missing: true });
+  assert.equal(result.error.code, 'ERR_ICMP_NATIVE_BINDING');
+  assert.match(result.error.message, /missing or incompatible/);
+  assert(result.error.cause);
+  assert(!result.requested.some(name => name.includes('-gnu')));
 });

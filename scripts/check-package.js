@@ -25,7 +25,7 @@ function checkManifest(metadata) {
 }
 
 function checkFiles(files) {
-  assert.deepEqual([...files].sort(), [...packageFiles].sort(), 'Unexpected package contents (all six binaries required)');
+  assert.deepEqual([...files].sort(), [...packageFiles].sort(), 'Unexpected package contents (all eight binaries required)');
 }
 
 // Inspect the retained tarball itself, never a new dry-run pack of the checkout.

@@ -95,8 +95,64 @@ jobs:
             icmp_ping.*.node
             binding.js
           if-no-files-found: error
+  prebuild-musl:
+    name: ${{ matrix.target }} (native Alpine)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-musl, arch: x64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      # Actions run on glibc; only native build/test processes run inside musl.
+      - name: Build native Alpine toolchain image
+        run: docker build --pull -f .github/musl.Dockerfile -t icmp-musl .
+      - name: Build and test on native musl
+        env:
+          TARGET: ${{ matrix.target }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm --cap-add=NET_RAW -v "$PWD:/work" \
+            -e TARGET -e EXPECTED_ARCH -e EXPECTED_LIBC=musl -e EXPECTED_NODE=24 \
+            icmp-musl sh -ec '
+              node scripts/check-runtime.js
+              rustc --version --verbose
+              test "$(rustc -vV | sed -n "s/^host: //p")" = "$TARGET"
+              cargo --version
+              npm ci
+              cargo fmt --check
+              cargo clippy --locked --all-targets --all-features -- -D warnings
+              cargo test --locked
+              npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target "$TARGET"
+              node scripts/check-generated.js
+              npm test
+              node --test test/integration.test.js test/resources.test.js
+            '
+      - name: Test the same binary on Node 22 and 26 in native Alpine
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          for version in 22 26; do
+            docker run --rm --cap-add=NET_RAW -v "$PWD:/work:ro" -w /work \
+              -e EXPECTED_ARCH -e EXPECTED_LIBC=musl -e EXPECTED_NODE="$version" \
+              "node:$version-alpine3.23" sh -ec '
+                node scripts/check-runtime.js
+                npm test
+                node --test test/integration.test.js
+              '
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.target }}
+          path: |
+            icmp_ping.*.node
+            binding.js
+          if-no-files-found: error
+
   package:
-    needs: prebuild
+    needs: [prebuild, prebuild-musl]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -146,4 +202,31 @@ jobs:
           name: npm-distribution
           path: distribution
       - name: Verify retained bytes and test offline installation with scripts disabled
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          EXPECTED_LIBC: ${{ runner.os == 'Linux' && 'gnu' || '' }}
         run: node scripts/test-install.js
+
+  install-musl:
+    name: Install bundled tarball (Alpine ${{ matrix.arch }}, Node ${{ matrix.node }})
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+        arch: [x64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-distribution
+          path: distribution
+      - name: Verify musl runtime and test exact retained tarball
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          EXPECTED_NODE: ${{ matrix.node }}
+        run: |
+          docker run --rm --cap-add=NET_RAW -v "$PWD:/work:ro" -w /work \
+            -e EXPECTED_ARCH -e EXPECTED_NODE -e EXPECTED_LIBC=musl \
+            "node:$EXPECTED_NODE-alpine3.23" node scripts/test-install.js
