@@ -8,8 +8,8 @@ Raw ICMP is the only v1 backend. Administrator privileges on Windows are accepte
 | --- | --- | --- | --- | --- | --- |
 | Linux glibc x64 | ubuntu-24.04 | Yes | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
 | Linux glibc arm64 | ubuntu-24.04-arm | Yes | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
-| Linux musl x64 | ubuntu-24.04 + Alpine 3.23 | Configured; pending CI | Configured: 22/24/26 | Required: privileged IPv4/IPv6 loopback | Pending CI |
-| Linux musl arm64 | ubuntu-24.04-arm + Alpine 3.23 | Configured; pending CI | Configured: 22/24/26 | Required: privileged IPv4/IPv6 loopback | Pending CI |
+| Linux musl x64 | ubuntu-24.04 + Alpine 3.23 | Required in CI | Required: 22/24/26 | Required: privileged IPv4/IPv6 loopback | Required in CI |
+| Linux musl arm64 | ubuntu-24.04-arm + Alpine 3.23 | Required in CI | Required: 22/24/26 | Required: privileged IPv4/IPv6 loopback | Required in CI |
 | macOS x64 | macos-15-intel | Yes | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
 | macOS arm64 | macos-15 | Yes (also local) | Yes: 22/24/26 | Yes: privileged IPv4/IPv6 loopback | Yes |
 | Windows x64 | windows-2025 | Yes | Yes: 22/24/26 | Yes: Administrator IPv4/IPv6 loopback | Yes |

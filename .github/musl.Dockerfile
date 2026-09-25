@@ -6,5 +6,8 @@ COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN apk add --no-cache libstdc++ make git \
     && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && rustup component add rustfmt clippy
+# napi-rs defaults ARM64 musl to a cross-linker name; these are native compilers.
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=gcc
 ENV RUSTFLAGS="-C target-feature=-crt-static"
 WORKDIR /work
