@@ -11,7 +11,7 @@ const { integrity, preflight } = require('./publish.js');
 function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distribution') {
   checkManifest(pkg);
   const directories = Object.keys(targets).map(target => `bindings-${target}`);
-  assert.deepEqual(fs.readdirSync(artifactDirectory).sort(), directories.sort(), 'All six intended build artifacts are required');
+  assert.deepEqual(fs.readdirSync(artifactDirectory).sort(), directories.sort(), 'All eight intended build artifacts are required');
   const loader = fs.readFileSync('binding.js', 'utf8');
   const inputs = Object.entries(targets).map(([target, platform]) => {
     const dir = path.join(artifactDirectory, `bindings-${target}`);
@@ -31,10 +31,11 @@ function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distributi
   assert.equal(result.filename, tarballName(pkg.name, pkg.version));
   const tarball = path.join(outputDirectory, result.filename);
   inspectTarball(tarball);
-  // Verify pack copied the exact binaries tested by the six prebuild jobs.
+  // Verify pack copied the exact binaries tested by the eight prebuild jobs.
   for (const { filename, bytes } of inputs) {
     assert.deepEqual(execFileSync('tar', ['-xOf', tarball, `package/${filename}`], { maxBuffer: 16 * 1024 * 1024 }), bytes);
   }
+  for (const { filename, bytes } of inputs) console.log(`${filename}: ${bytes.length} bytes`);
   const sri = integrity(fs.readFileSync(tarball));
   assert.equal(result.integrity, sri);
   fs.writeFileSync(path.join(outputDirectory, 'integrity.json'), JSON.stringify({ name: pkg.name, version: pkg.version, filename: result.filename, integrity: sri }, null, 2) + '\n');

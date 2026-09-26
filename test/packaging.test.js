@@ -31,7 +31,7 @@ function fixture(fn) {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-test('npm pack contains precisely the API, docs, loader and six binaries', () => fixture(({ distribution, pack }) => {
+test('npm pack contains precisely the API, docs, loader and eight binaries', () => fixture(({ distribution, pack }) => {
   const result = pack();
   assert.equal(result.filename, tarballName(pkg.name, pkg.version));
   assert.deepEqual(result.files.map(f => f.path).sort(), [...packageFiles].sort());
@@ -41,16 +41,17 @@ test('npm pack contains precisely the API, docs, loader and six binaries', () =>
   assert.equal(item.integrity, result.integrity);
   assert.throws(() => preflight(distribution, channel === 'next' ? 'latest' : 'next'), /Unsafe release channel/);
 }));
-for (const fault of ['missing binary', 'empty binary', 'optional dependency', 'install hook', 'private access', 'wrong version', 'wrong identity', 'unexpected target', 'unexpected file', 'changed loader']) test(`reject package with ${fault}`, () => fixture(({ source, distribution, pack }) => {
+for (const fault of ['missing binary', 'missing musl x64', 'missing musl arm64', 'empty binary', 'optional dependency', 'install hook', 'private access', 'wrong version', 'wrong identity', 'unexpected target', 'unexpected file', 'changed loader']) test(`reject package with ${fault}`, () => fixture(({ source, distribution, pack }) => {
   const metadata = structuredClone(pkg);
   if (fault === 'missing binary') fs.rmSync(path.join(source, binaries[0]));
+  if (fault.startsWith('missing musl ')) fs.rmSync(path.join(source, `icmp_ping.linux-${fault.split(' ')[2]}-musl.node`));
   if (fault === 'empty binary') fs.writeFileSync(path.join(source, binaries[0]), '');
   if (fault === 'optional dependency') metadata.optionalDependencies = { [`${pkg.name}-linux-x64-gnu`]: pkg.version };
   if (fault === 'install hook') metadata.scripts.install = 'node download.js';
   if (fault === 'private access') metadata.publishConfig.access = 'restricted';
   if (fault === 'wrong version') metadata.version = '99.0.0';
   if (fault === 'wrong identity') metadata.name = 'node-icmp-ping';
-  if (fault === 'unexpected target') metadata.napi.targets.push('x86_64-unknown-linux-musl');
+  if (fault === 'unexpected target') metadata.napi.targets.push('s390x-unknown-linux-gnu');
   if (fault === 'unexpected file') { metadata.files.push('extra.node'); fs.writeFileSync(path.join(source, 'extra.node'), 'extra'); }
   if (fault === 'changed loader') fs.appendFileSync(path.join(source, 'binding.js'), '\n// changed');
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(metadata));
@@ -79,7 +80,7 @@ test('manifest forbids dependencies and each install hook', () => {
   }
 });
 
-test('assembly uses all six tested artifacts, preserves manifest and refuses to overwrite retention', () => fixture(({ source }) => {
+test('assembly uses all eight tested artifacts, preserves manifest and refuses to overwrite retention', () => fixture(({ source }) => {
   fs.cpSync(path.join(__dirname, '../scripts'), path.join(source, 'scripts'), { recursive: true });
   const original = fs.readFileSync(path.join(source, 'package.json'));
   const artifacts = path.join(source, 'artifacts');
@@ -95,14 +96,14 @@ test('assembly uses all six tested artifacts, preserves manifest and refuses to 
   assert.throws(run, /Generated loader differs/);
   fs.copyFileSync(path.join(source, 'binding.js'), path.join(first, 'binding.js'));
   fs.renameSync(first, first + '-wrong');
-  assert.throws(run, /All six intended build artifacts/);
+  assert.throws(run, /All eight intended build artifacts/);
   fs.renameSync(first + '-wrong', first);
   assert.match(run(), /Validated .* bytes compressed/);
-  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 15 files/);
+  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 17 files/);
   const loaderPath = path.join(source, 'binding.js');
   const loader = fs.readFileSync(loaderPath, 'utf8');
   fs.writeFileSync(loaderPath, loader.replace(/\n/g, '\r\n'));
-  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 15 files/);
+  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 17 files/);
   fs.writeFileSync(loaderPath, loader);
   assert.deepEqual(fs.readFileSync(path.join(source, 'package.json')), original);
   assert.throws(run, /Distribution directory must be empty/);

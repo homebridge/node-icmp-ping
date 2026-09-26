@@ -28,6 +28,8 @@
     "docs/releasing.md",
     "icmp_ping.linux-x64-gnu.node",
     "icmp_ping.linux-arm64-gnu.node",
+    "icmp_ping.linux-x64-musl.node",
+    "icmp_ping.linux-arm64-musl.node",
     "icmp_ping.darwin-x64.node",
     "icmp_ping.darwin-arm64.node",
     "icmp_ping.win32-x64-msvc.node",
@@ -41,6 +43,8 @@
     "targets": [
       "x86_64-unknown-linux-gnu",
       "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
       "x86_64-pc-windows-msvc",

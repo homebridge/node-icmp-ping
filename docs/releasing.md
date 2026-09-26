@@ -1,6 +1,6 @@
 # Releases and npm distribution
 
-One public npm package, `@homebridge/node-icmp-ping`, contains all six native binaries. Build and test CI never publishes. Creating a GitHub Release does not automatically publish to npm. Publication and live npm trust configuration remain separate operator steps.
+One public npm package, `@homebridge/node-icmp-ping`, contains all eight native binaries. Build and test CI never publishes. Creating a GitHub Release does not automatically publish to npm. Publication and live npm trust configuration remain separate operator steps.
 
 ## Package contents and assembly
 
@@ -10,16 +10,20 @@ The pinned napi-rs CLI still builds the addon with N-API 9 and generates `bindin
 | --- | --- |
 | Linux glibc x64 | `icmp_ping.linux-x64-gnu.node` |
 | Linux glibc arm64 | `icmp_ping.linux-arm64-gnu.node` |
+| Linux musl x64 | `icmp_ping.linux-x64-musl.node` |
+| Linux musl arm64 | `icmp_ping.linux-arm64-musl.node` |
 | macOS x64 | `icmp_ping.darwin-x64.node` |
 | macOS arm64 | `icmp_ping.darwin-arm64.node` |
 | Windows MSVC x64 | `icmp_ping.win32-x64-msvc.node` |
 | Windows MSVC arm64 | `icmp_ping.win32-arm64-msvc.node` |
 
-The public CommonJS and ESM API stays unchanged. `index.js` delegates to the generated loader and adds a distribution-specific error with the original error as its cause. There is no separate platform selector, binary downloader, or install-time compilation. musl and other targets remain unsupported. Upstream's generated optional-package probes remain in the loader, but no platform packages are declared, installed, assembled, or published; supported installations load the adjacent binary. Loader tests cover all six selections, musl filesystem/report detection, unsupported targets, and missing binaries.
+The public CommonJS and ESM API stays unchanged. `index.js` delegates to the generated loader and adds a distribution-specific error with the original error as its cause. There is no separate platform selector, binary downloader, or install-time compilation. Other targets remain unsupported. Upstream's generated optional-package probes remain in the loader, but no platform packages are declared, installed, assembled, or published; supported installations load the adjacent binary. Loader tests cover all eight selections, musl filesystem/report detection, unsupported targets, and missing binaries.
 
-`Build and test` builds on all six native runners. It tests each build on Node 22/24/26 and exercises real privileged IPv4/IPv6 loopback Echo before uploading a `bindings-<Rust target>` artifact containing the binary and generated loader. Assembly requires exactly these six artifacts, nonempty binaries, and identical generated loaders matching the reviewed `binding.js`. A generator/version change that changes this file requires regeneration and review before CI passes.
+`Build and test` builds on eight targets on native runners. It tests each build on Node 22/24/26 and exercises real privileged IPv4/IPv6 loopback Echo before uploading a `bindings-<Rust target>` artifact containing the binary and generated loader. Assembly requires exactly these eight artifacts, nonempty binaries, and identical generated loaders matching the reviewed `binding.js`. A generator/version change that changes this file requires regeneration and review before CI passes.
 
-Assembly copies the tested binaries into the root without rewriting the manifest, then runs `npm pack --ignore-scripts` once. The exact tarball is inspected for the expected identity, version, public access, entry points, six binary files, no runtime dependencies, and no install hooks. Each packed binary must equal its original tested input. Development sources, scripts, tests, and build output are excluded. The published files are the manifest, three API files, loader, README, license, two documents, and six binaries (15 files).
+Musl builds use the official Rust 1.98.1 and Node 24 Alpine 3.23 images on matching native runners (`.github/musl.Dockerfile`), with dynamic musl linkage (`-C target-feature=-crt-static`) for the addon. Cargo explicitly uses native `gcc` so napi-rs does not select its default ARM64 cross-linker name. Host-side Actions avoid requiring glibc-dependent JavaScript actions inside Alpine. Clean install tests use the unmodified Node images without Rust or build tools.
+
+Assembly copies the tested binaries into the root without rewriting the manifest, then runs `npm pack --ignore-scripts` once. The exact tarball is inspected for the expected identity, version, public access, entry points, eight binary files, no runtime dependencies, and no install hooks. Each packed binary must equal its original tested input. Development sources, scripts, tests, and build output are excluded. The published files are the manifest, three API files, loader, README, license, two documents, and eight binaries (17 files).
 
 The retained `npm-distribution` artifact contains only:
 
@@ -28,9 +32,9 @@ The retained `npm-distribution` artifact contains only:
 
 The checksum record detects a mismatch against the retained assembly output; it is not a signature or a substitute for GitHub artifact/run provenance. Retain both files and the originating run, commit, and tag together. Assembly refuses a nonempty output directory to prevent accidental replacement of a retained distribution.
 
-After assembly, 18 install jobs (six target runners × Node 22/24/26) download that same artifact. Every job verifies its retained SHA-512 and exact contents, installs offline with `--ignore-scripts`, checks the installed version and lockfile integrity, confirms there are no separate runtime packages, loads CommonJS/ESM, validates arguments, and runs real IPv4/IPv6 Echo with the required privileges. Permission failures fail the job. The reusable workflow completes only after all install jobs pass; publication depends on its completion. Linux timeout tests remain isolated in network namespaces.
+After assembly, 24 install jobs (eight platform/libc targets × Node 22/24/26) download that same artifact. Every job verifies its retained SHA-512 and exact contents, installs offline with `--ignore-scripts`, checks the installed version and lockfile integrity, confirms there are no separate runtime packages, loads CommonJS/ESM, validates arguments, and runs real IPv4/IPv6 Echo with the required privileges. Permission failures fail the job. The reusable workflow completes only after all install jobs pass; publication depends on its completion. Linux glibc timeout tests remain isolated in network namespaces. The six Alpine install jobs run the official `node:22/24/26-alpine3.23` images on matching native Ubuntu x64/arm64 hosts, as root with `NET_RAW`. They assert the expected Node major and architecture, mapped musl libc in `/proc/self/maps`, no glibc runtime in the Node report, and the exact musl binary loaded from the installed package. Independent glibc jobs assert glibc and the gnu binary. Neither libc test can silently validate the other. IPv4/IPv6 Echo failures fail the job; there is no emulation or skip path.
 
-For local assembly, download all six binding artifacts into `artifacts/` with their original directory names, then run:
+For local assembly, download all eight binding artifacts into `artifacts/` with their original directory names, then run:
 
 ```sh
 node scripts/assemble.js
@@ -44,7 +48,7 @@ The last command requires raw-socket privileges (passwordless `sudo -n` on Unix,
 
 The prepared version is `0.9.0-beta.1`, tag `v0.9.0-beta.1`, a GitHub prerelease and npm `next` release. Unsuffixed versions use `latest`; major zero alone does not imply a prerelease. Preparing these changes creates no tag, release, or npm publication.
 
-1. Merge only after review and green CI, including all 18 final-tarball install jobs. Have Homebridge npm administrators confirm permission to create/publish **only `@homebridge/node-icmp-ping`**, with the required organization/team access and 2FA. Verify the GitHub `npm-production` environment has the intended reviewers and deployment restrictions. Repository ownership and a registry 404 do not establish npm publishing rights. Arrange authenticated manual access separately; do not store publication credentials in the repository.
+1. Merge only after review and green CI, including all 24 final-tarball install jobs. Have Homebridge npm administrators confirm permission to create/publish **only `@homebridge/node-icmp-ping`**, with the required organization/team access and 2FA. Verify the GitHub `npm-production` environment has the intended reviewers and deployment restrictions. Repository ownership and a registry 404 do not establish npm publishing rights. Arrange authenticated manual access separately; do not store publication credentials in the repository.
 2. After release approval, create the exact tag on the reviewed commit and matching non-draft GitHub Release with `prerelease: true`. Dispatch `Prepare or publish npm release` on that tag with the same `release_tag` and **`publish: false`**. Prepare-only still validates the tag, commit, version, and release metadata.
 3. Review all target/runtime results. Retain the original `npm-distribution` artifact and its workflow run, tag, and commit SHA before retention expires. Keep the two files together in `distribution/` at the matching checkout. Run `npm run package:check` and inspect the contents, attribution, and `integrity.json`. Keep an independent copy of the recorded SRI with your release records. Do not rebuild or repack for publication or recovery.
 4. After publication approval, perform the one-time authenticated manual bootstrap from that retained file:

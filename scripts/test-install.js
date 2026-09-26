@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
+require('./check-runtime.js').checkRuntime();
 const { packageFiles } = require('./package-identity.js');
 const channel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
 const item = require('./publish.js').preflight(process.argv[2] || 'distribution', channel);
@@ -27,6 +28,10 @@ try {
     assert.equal(lock.packages['node_modules/${pkg.name}'].integrity, '${item.integrity}');
     const api = require('${pkg.name}');
     assert.deepEqual(Object.keys(api), ['ping']);
+    if (process.env.EXPECTED_LIBC) {
+      const expected = path.join(directory, 'icmp_ping.linux-' + process.arch + '-' + process.env.EXPECTED_LIBC + '.node');
+      assert.deepEqual(Object.keys(require.cache).filter(file => file.endsWith('.node')), [expected]);
+    }
     (async () => {
       const esm = await import('${pkg.name}');
       assert.equal(esm.ping, api.ping);

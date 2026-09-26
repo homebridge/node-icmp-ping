@@ -10,7 +10,7 @@ npm install @homebridge/node-icmp-ping
 
 The repository is prepared for npm publication; no initial package has been published yet. Supported Node lines are 22.13+, 24.x, and 26.x. Node-API 9 works throughout this range; the Node 22 minimum also matches the napi-rs build CLI. Node 18 and 20 are not supported.
 
-One npm package bundles all six prebuilt binaries beside the napi-rs generated loader, which selects the matching platform and libc. No optional native packages or binary downloads are required. Ordinary installation on a supported target requires no Rust, Cargo, Python, node-gyp, or local compiler. Building a checkout requires Rust and the platform linker/SDK.
+One npm package bundles all eight prebuilt binaries beside the napi-rs generated loader, which selects the matching platform and libc. No optional native packages or binary downloads are required. Ordinary installation on a supported target requires no Rust, Cargo, Python, node-gyp, or local compiler. Building a checkout requires Rust and the platform linker/SDK.
 
 ## Privileges and platforms
 
@@ -22,7 +22,7 @@ The process must have permission to create **raw ICMP sockets**:
 
 Permission failures reject with a message explaining the privilege requirement. ICMP filtering/firewalls can cause negative results even when a host is running. Permission restrictions are part of the platform contract.
 
-Prebuild targets are Linux glibc x64/arm64, macOS x64/arm64, and Windows MSVC x64/arm64. Linux musl and other architectures are not included. Unsupported/missing native binaries cause a clear loading error; there is no system-command or alternate protocol fallback. See [platform coverage](docs/platforms.md) for build, CI, runtime, and artifact status separately.
+Prebuild targets are Linux glibc and musl (Alpine 3.23) x64/arm64, macOS x64/arm64, and Windows MSVC x64/arm64. Other architectures are not included. Unsupported/missing native binaries cause a clear loading error; there is no system-command or alternate protocol fallback. See [platform coverage](docs/platforms.md) for build, CI, runtime, and artifact status separately.
 
 ## API
 
