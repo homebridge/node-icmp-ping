@@ -1,10 +1,24 @@
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /
-    schedule: { interval: weekly }
+  # Configuration for npm
+  - package-ecosystem: "npm"
+    # Look for `package.json` and `lock` files in the `root` directory
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Disable all pull requests for npm dependencies
+    open-pull-requests-limit: 10
+
+  # Configuration for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Configuration for cargo
   - package-ecosystem: cargo
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: "weekly"
     open-pull-requests-limit: 5
