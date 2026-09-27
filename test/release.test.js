@@ -66,6 +66,9 @@ function sandbox(t) {
   fs.writeFileSync(path.join(source, 'binding.js'), 'original\n');
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(fixture().pkg));
   fs.writeFileSync(path.join(source, 'unrelated'), 'original\n');
+  fs.writeFileSync(path.join(source, 'package-lock.json'), JSON.stringify(fixture().lock));
+  fs.writeFileSync(path.join(source, 'Cargo.toml'), fixture().cargo);
+  fs.writeFileSync(path.join(source, 'Cargo.lock'), fixture().cargoLock);
   git(source, 'add', '.'); git(source, 'commit', '-m', 'fixture'); git(source, 'push', 'origin', 'main');
   const sha = git(source, 'rev-parse', 'HEAD');
   git(directory, 'clone', remote, checkout); git(checkout, 'checkout', '--detach', sha);
@@ -73,8 +76,37 @@ function sandbox(t) {
   fs.writeFileSync(event, JSON.stringify(fixture().event));
   const summary = path.join(directory, 'summary.md');
   const output = path.join(directory, 'output');
-  const env = { ...process.env, GITHUB_EVENT_PATH: event, GITHUB_EVENT_NAME: 'release', GITHUB_SHA: sha,
+  // Intercept only the simulated transport boundary; all Git state changes use real local repositories.
+  const intercept = path.join(directory, 'transport.cjs');
+  fs.writeFileSync(intercept, `
+    const cp = require('node:child_process');
+    const fs = require('node:fs');
+    const real = cp.execFileSync;
+    let fetches = 0;
+    cp.execFileSync = (file, args, options) => {
+      if (file === 'gh') return JSON.stringify(JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH)).release);
+      if (file === 'git' && args[0] === 'fetch') {
+        fetches++;
+        if (process.env.TEST_TRANSPORT === 'initial-fetch-failure' ||
+            (fetches === 2 && process.env.TEST_TRANSPORT === 'confirm-failure')) throw new Error('simulated fetch failure');
+      }
+      if (file === 'git' && args[0] === 'push') {
+        if (process.env.TEST_TRANSPORT === 'race') {
+          const opts = { cwd: process.env.TEST_SOURCE, stdio: 'pipe' };
+          fs.writeFileSync(process.env.TEST_SOURCE + '/unrelated', 'concurrent main update');
+          real('git', ['commit', '-am', 'concurrent advancement'], opts);
+          real('git', ['push', 'origin', 'main'], opts);
+        }
+        const result = real(file, args, options);
+        if (process.env.TEST_TRANSPORT === 'lost-response') throw new Error('simulated lost push response');
+        return result;
+      }
+      return real(file, args, options);
+    };
+  `);
+  const env = { ...process.env, NODE_OPTIONS: `--require=${JSON.stringify(intercept)}`, TEST_SOURCE: source, GITHUB_EVENT_PATH: event, GITHUB_EVENT_NAME: 'release', GITHUB_SHA: sha,
     GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', LOADER_SHA256: digest(Buffer.from('generated\n')),
+    GITHUB_REPOSITORY: 'homebridge/node-icmp-ping', GITHUB_REF: fixture().ref,
     GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output };
   fs.mkdirSync(path.join(checkout, 'regenerated-loader'));
   fs.writeFileSync(path.join(checkout, 'regenerated-loader/binding.js'), 'generated\n');
@@ -97,13 +129,12 @@ test('generation may not silently change a lockfile or unrelated source', t => {
   assert.equal(s.run('release-loader.js').status, 1);
   assert.equal(fs.existsSync(s.output), false);
 });
-for (const mode of ['direct', 'protected', 'advanced', 'all-pushes-denied', 'bad-digest', 'dirty']) {
+for (const mode of ['direct', 'protected', 'advanced', 'bad-digest', 'dirty', 'staged', 'race', 'lost-response', 'confirm-failure', 'initial-fetch-failure']) {
   test(`loader repair ${mode}: never succeeds as a release`, t => {
     const s = sandbox(t);
-    if (mode === 'protected' || mode === 'all-pushes-denied') {
-      fs.writeFileSync(path.join(s.remote, 'hooks/pre-receive'), mode === 'protected'
-        ? '#!/bin/sh\nwhile read old new ref; do\n  if [ "$ref" = refs/heads/main ]; then exit 1; fi\ndone\n'
-        : '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    s.env.TEST_TRANSPORT = mode;
+    if (mode === 'protected') {
+      fs.writeFileSync(path.join(s.remote, 'hooks/pre-receive'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     }
     let expectedMain = s.sha;
     if (mode === 'advanced') {
@@ -113,22 +144,68 @@ for (const mode of ['direct', 'protected', 'advanced', 'all-pushes-denied', 'bad
     }
     if (mode === 'bad-digest') s.env.LOADER_SHA256 = '0'.repeat(64);
     if (mode === 'dirty') fs.writeFileSync(path.join(s.checkout, 'unrelated'), 'dirty\n');
+    if (mode === 'staged') {
+      fs.writeFileSync(path.join(s.checkout, 'unrelated'), 'staged\n');
+      s.git(s.checkout, 'add', 'unrelated');
+    }
     const result = s.run('repair-release-loader.js');
+    if (mode === 'race') expectedMain = s.git(s.source, 'rev-parse', 'HEAD');
     assert.equal(result.status, 1, result.stderr);
     const message = fs.readFileSync(s.summary, 'utf8');
     assert.match(message, /Nothing was published to npm/);
-    if (mode === 'direct') {
-      assert.match(message, /committed to `main`/);
+    if (['direct', 'lost-response', 'confirm-failure'].includes(mode)) {
+      assert.match(message, mode === 'confirm-failure' ? /confirming fetch failed/ : /confirmed on main/);
       assert.equal(s.git(s.remote, 'show', 'main:binding.js'), 'generated');
       assert.equal(s.git(s.remote, 'diff', '--name-only', s.sha, 'main'), 'binding.js');
+      assert.equal(s.git(s.remote, 'rev-parse', 'main^'), s.sha);
     } else {
       assert.equal(s.git(s.remote, 'rev-parse', 'main'), expectedMain);
-      if (mode === 'protected' || mode === 'advanced') {
-        assert.match(message, /release-loader\/42-1/);
-        assert.equal(s.git(s.remote, 'diff', '--name-only', s.sha, 'release-loader/42-1'), 'binding.js');
-      } else assert.match(message, /repair could not be confirmed/);
+      assert.match(message, /repair could not be confirmed/);
     }
+    if (!['direct', 'lost-response'].includes(mode)) {
+      assert.match(message, /current main/);
+      assert.match(message, /npm ci.*npm run build/);
+      assert.match(message, /no push was attempted|not confirmed on main|fetch failed|digest mismatch|checkout must be clean|fetch failure/);
+    }
+    assert.equal(fs.readFileSync(path.join(s.checkout, 'regenerated-loader/binding.js'), 'utf8'), 'generated\n');
+    assert.equal(s.git(s.remote, 'for-each-ref', '--format=%(refname)', 'refs/heads'), 'refs/heads/main');
     assert.equal(s.git(s.remote, 'tag', '--list'), '');
+  });
+}
+for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-tag']) {
+  test(`full release check with local remote: ${mode}`, t => {
+    const s = sandbox(t);
+    const tag = fixture().event.release.tag_name;
+    if (mode !== 'missing-tag') {
+      s.git(s.source, 'tag', tag);
+      s.git(s.source, 'push', 'origin', `refs/tags/${tag}`);
+    }
+    if (['ancestor', 'off-main', 'moved-tag'].includes(mode)) {
+      fs.writeFileSync(path.join(s.source, 'unrelated'), 'new source');
+      s.git(s.source, 'commit', '-am', 'new commit');
+      if (mode === 'ancestor') s.git(s.source, 'push', 'origin', 'main');
+      if (mode === 'off-main') {
+        s.env.GITHUB_SHA = s.git(s.source, 'rev-parse', 'HEAD');
+        s.git(s.checkout, 'fetch', s.source, 'HEAD');
+        s.git(s.checkout, 'checkout', '--detach', s.env.GITHUB_SHA);
+      }
+      if (mode !== 'ancestor') {
+        s.git(s.source, 'tag', '-f', tag);
+        s.git(s.source, 'push', '--force', 'origin', `refs/tags/${tag}`);
+      }
+    }
+    // Checkout initially has no tag: check() must fetch it from the remote.
+    assert.equal(s.git(s.checkout, 'tag', '--list'), '');
+    const result = s.run('release-check.js');
+    assert.equal(result.status, ['remote-tag', 'ancestor'].includes(mode) ? 0 : 1, result.stderr);
+    if (result.status === 0) {
+      assert.equal(fs.readFileSync(s.output, 'utf8'), 'channel=next\n');
+      assert.equal(s.git(s.checkout, 'rev-parse', `${tag}^{commit}`), s.sha);
+    } else {
+      assert.equal(fs.existsSync(s.output), false);
+      if (mode === 'moved-tag') assert.match(result.stderr, /Tag does not point/);
+      if (mode === 'off-main') assert.match(result.stderr, /merge-base --is-ancestor/);
+    }
   });
 }
 // Guard the job graph as well as the scripts: repair success must never unlock build.

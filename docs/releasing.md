@@ -20,21 +20,25 @@ The configured `npm-production` environment and its protections remain in force.
 
 The read-only validation job retains the regenerated `binding.js` as `regenerated-loader` and blocks the entire native matrix/assembly/publication path. A separate repair job, the only job with `contents: write`, downloads and verifies those bytes and commits **only `binding.js`**. It does not run npm, build code, or execute the generated loader with write permission.
 
-When `main` still equals the release commit and accepts a normal fast-forward push, the workflow reports:
+When `main` still equals the release commit, automation attempts a normal fast-forward push, then fetches `main` again to confirm the repair commit is present. Concurrent advancement that conflicts with the push is rejected; the workflow never force-pushes or retries a push. A lost push response is resolved only if the subsequent fetch confirms the repair commit is on `main`.
 
-> `binding.js` differed from the version committed at `v0.9.0-beta.2`. The loader was regenerated and committed to `main`. Nothing was published to npm. Review the generated change, manually delete the GitHub release/tag, then recreate the release.
+A confirmed repair reports the generated commit SHA and that nothing was published to npm. Even a successful fix deliberately fails that release run: its tag still contains the old loader. Review the generated commit and obtain green nonpublishing build/test CI on updated `main`, manually delete the failed **GitHub Release and tag**, and recreate the matching release on the reviewed updated commit. Automation never deletes or moves the release/tag.
 
-The actual tag and generated commit SHA appear in the workflow error and summary. Even a successful fix deliberately fails that release run: its tag still contains the old loader. Review the generated commit and obtain green build/test CI (the nonpublishing `Build and test` dispatch is available if needed), manually delete the failed **GitHub Release and tag**, and recreate the matching release on the reviewed updated commit. The automation never deletes or moves the release/tag and never asks you to regenerate the loader by hand.
+### Permissions and artifact recovery
 
-### Permissions and recovery fallback
+Direct repair requires the existing repository permissions and branch rules to allow the job-scoped `contents: write` token to push. The workflow neither assumes bypass privileges nor weakens branch protection.
 
-At implementation inspection, GitHub's branch API reported `main` as unprotected, so a direct generated commit appears viable with a job-scoped `contents: write` token. Private Actions settings and environment rules could not be inspected with the available integration; neither bypass privileges nor future branch settings are assumed. The repair never force-pushes `main` or weakens branch protection.
+If `main` has advanced, the push is rejected, a confirming fetch fails, or any other safety check prevents confirmation, automation stops with nothing published. It does not create, push, or manage a recovery branch. The error and summary explain the failure; the `regenerated-loader` artifact remains available from validation even if repair fails. Preserve that artifact, the release commit and its reported SHA-256 before artifact retention expires.
 
-If `main` advances during the build, or rejects the push, automation instead attempts to create `release-loader/<run-id>-<attempt>` from the release commit with only the loader change. The summary asks you to review/merge that branch through a normal PR, obtain green CI, then manually delete/recreate the failed release/tag. Automatic PR creation is deliberately avoided because it depends on an additional repository setting and permission. If main's generation inputs changed, a further release attempt may need to regenerate the loader from that new source. Do not blindly transplant stale generated output.
+Exceptional recovery:
 
-If even a recovery branch cannot be pushed, the run fails and the generated loader remains downloadable in `regenerated-loader`. Review those exact bytes through a normal change; publication remains blocked. No artifact means generation/upload itself failed: resolve that failure before retrying. Missing outputs and failed validation also cannot unlock publication.
+1. Fetch and inspect current `main` for the reported repair commit first: an ambiguous push response or failed confirming fetch may mean the commit already landed. Do not blindly retry the push or transplant the old artifact.
+2. In a clean checkout of **current `main`**, install locked dependencies with `npm ci` and run the canonical `npm run build` to regenerate `binding.js` from current source. Use the retained artifact for comparison only; it was generated from the obsolete release commit and may no longer be correct. Review and commit **only `binding.js`**, if changed, through the normal reviewed change process. If generation changes other tracked files or fails, investigate before proceeding.
+3. Obtain green nonpublishing CI on the reviewed updated `main`. Only then manually delete the failed GitHub Release and tag and recreate the matching release. This local regeneration is exceptional recovery, never a routine release step.
 
-Generated pushes use `GITHUB_TOKEN`. They do not recursively trigger push workflows ([GitHub token event semantics](https://docs.github.com/en/actions/concepts/security/github_token)); release publication only responds to a human-published release. After reviewing a direct repair commit, run the nonpublishing build/test workflow on `main` to obtain green CI before recreating the release. That exceptional check is not a second npm publication path.
+No artifact means generation/upload itself failed: resolve that failure before retrying. Missing outputs and failed validation also cannot unlock publication.
+
+Generated pushes use `GITHUB_TOKEN`. They do not recursively trigger push workflows ([GitHub token event semantics](https://docs.github.com/en/actions/concepts/security/github_token)); release publication only responds to a published GitHub Release. After reviewing a direct repair commit, run the nonpublishing `Build and test` workflow on `main` to obtain green CI before recreating the release. That exceptional check is not a second npm publication path.
 
 ## Package contents and assembly
 
