@@ -8,7 +8,7 @@
 npm install @homebridge/node-icmp-ping
 ```
 
-The repository is prepared for npm publication; no initial package has been published yet. Supported Node lines are 22.13+, 24.x, and 26.x. Node-API 9 works throughout this range; the Node 22 minimum also matches the napi-rs build CLI. Node 18 and 20 are not supported.
+The package is published through GitHub Releases using npm Trusted Publishing. Supported Node lines are 22.13+, 24.x, and 26.x. Node-API 9 works throughout this range; the Node 22 minimum also matches the napi-rs build CLI. Node 18 and 20 are not supported.
 
 One npm package bundles all eight prebuilt binaries beside the napi-rs generated loader, which selects the matching platform and libc. No optional native packages or binary downloads are required. Ordinary installation on a supported target requires no Rust, Cargo, Python, node-gyp, or local compiler. Building a checkout requires Rust and the platform linker/SDK.
 
@@ -93,4 +93,4 @@ npm run test:release
 
 `npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
-Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes prebuilt assembly and trusted publishing setup.
+Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the one-click GitHub Release process, automated loader verification, prebuilt assembly, and publication recovery.

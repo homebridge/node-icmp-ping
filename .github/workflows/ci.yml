@@ -26,6 +26,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24.x
@@ -45,7 +48,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked
-      - run: npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target ${{ matrix.target }}
+      - run: npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target ${{ matrix.target }} -- --locked
       - run: node scripts/check-generated.js
       - run: npm test
       - name: Raw ICMP and resource tests (Unix)
@@ -106,6 +109,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       # Actions run on glibc; only native build/test processes run inside musl.
       - name: Build native Alpine toolchain image
         run: docker build --pull -f .github/musl.Dockerfile -t icmp-musl .
@@ -125,7 +131,7 @@ jobs:
               cargo fmt --check
               cargo clippy --locked --all-targets --all-features -- -D warnings
               cargo test --locked
-              npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target "$TARGET"
+              npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target "$TARGET" -- --locked
               node scripts/check-generated.js
               npm test
               node --test test/integration.test.js test/resources.test.js
@@ -156,6 +162,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24.x
@@ -193,6 +202,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
@@ -218,6 +230,9 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: npm-distribution

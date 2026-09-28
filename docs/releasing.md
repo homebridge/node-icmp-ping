@@ -1,6 +1,44 @@
 # Releases and npm distribution
 
-One public npm package, `@homebridge/node-icmp-ping`, contains all eight native binaries. Build and test CI never publishes. Creating a GitHub Release does not automatically publish to npm. Publication and live npm trust configuration remain separate operator steps.
+One public npm package, `@homebridge/node-icmp-ping`, contains all eight native binaries. Publishing a GitHub Release is the only normal npm publication trigger. Ordinary push, pull-request and manually dispatched build/test CI cannot publish. The initial npm bootstrap and OIDC setup are complete.
+
+## Normal release: publish once in GitHub
+
+1. Synchronize `package.json`, `package-lock.json` (both top-level and root-package versions), `Cargo.toml`, and the root package in `Cargo.lock` through a normal reviewed change to `main`. Require green CI, including all 24 retained-tarball installation jobs. No manual loader regeneration is required as a release step.
+2. In GitHub, choose **Create a new release**. Choose/create the exact tag `v<version>` on that reviewed `main` commit. For example, `0.9.0-beta.2` requires `v0.9.0-beta.2`. Existing tags must resolve to that same commit; do not move a published version's tag.
+3. Mark beta/RC/other suffixed versions as **prerelease**. Mark an unsuffixed stable version as a normal/latest GitHub release. Fill in the release notes and click **Publish release**.
+
+That click starts `Publish GitHub Release to npm` (`publish.yml`). There is no separate Actions publish dispatch. GitHub prereleases select npm `next`; normal stable releases select `latest`. Marking a beta as stable, or a stable version as prerelease, fails validation. Major zero alone does not imply prerelease.
+
+Automation validates the published event, exact tag, event commit, checked-out commit, main ancestry, all four version files, and current GitHub Release identity/channel. It installs dependencies from `package-lock.json` with `npm ci`, then runs the canonical `npm run build` using locked `@napi-rs/cli` (currently 3.10.5) and Cargo's `--locked` flag to regenerate and verify `binding.js`. An identical loader automatically unlocks the existing eight native builds, assembly, and all 24 exact-retained-tarball installs on Node 22/24/26. Only after all succeed does the `npm-production` job recheck the live release/tag and publish the exact retained tarball using Node 24, npm 11.19.1, OIDC Trusted Publishing and provenance. Registry preflight/read-back verifies identity, SHA-512 integrity and the intended dist-tag.
+
+The event is specifically [`release: published`](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release), covering prereleases published from drafts as well as stable releases. Creating/editing a draft, tag pushes, ordinary commits and editing an already-published release do not publish npm. Set the correct prerelease status before clicking Publish; editing it later is not a channel-promotion mechanism.
+
+The configured `npm-production` environment and its protections remain in force. If it requires a reviewer or has deployment restrictions, GitHub may pause/reject the job; this workflow does not bypass or change those settings. A literal single-click, unattended completion requires the existing environment to permit the release without another approval. The Trusted Publisher must continue to match `homebridge/node-icmp-ping`, `publish.yml`, and `npm-production`; no long-lived npm token is used. Settings are not configured by this workflow.
+
+## Exceptional case: generated loader differs
+
+The read-only validation job retains the regenerated `binding.js` as `regenerated-loader` and blocks the entire native matrix/assembly/publication path. A separate repair job, the only job with `contents: write`, downloads and verifies those bytes and commits **only `binding.js`**. It does not run npm, build code, or execute the generated loader with write permission.
+
+When `main` still equals the release commit, automation attempts a normal fast-forward push, then fetches `main` again to confirm the repair commit is present. Concurrent advancement that conflicts with the push is rejected; the workflow never force-pushes or retries a push. A lost push response is resolved only if the subsequent fetch confirms the repair commit is on `main`.
+
+A confirmed repair reports the generated commit SHA and that nothing was published to npm. Even a successful fix deliberately fails that release run: its tag still contains the old loader. Review the generated commit and obtain green nonpublishing build/test CI on updated `main`, manually delete the failed **GitHub Release and tag**, and recreate the matching release on the reviewed updated commit. Automation never deletes or moves the release/tag.
+
+### Permissions and artifact recovery
+
+Direct repair requires the existing repository permissions and branch rules to allow the job-scoped `contents: write` token to push. The workflow neither assumes bypass privileges nor weakens branch protection.
+
+If `main` has advanced, the push is rejected, a confirming fetch fails, or any other safety check prevents confirmation, automation stops with nothing published. It does not create, push, or manage a recovery branch. The error and summary explain the failure; the `regenerated-loader` artifact remains available from validation even if repair fails. Preserve that artifact, the release commit and its reported SHA-256 before artifact retention expires.
+
+Exceptional recovery:
+
+1. Fetch and inspect current `main` for the reported repair commit first: an ambiguous push response or failed confirming fetch may mean the commit already landed. Do not blindly retry the push or transplant the old artifact.
+2. In a clean checkout of **current `main`**, install locked dependencies with `npm ci` and run the canonical `npm run build` to regenerate `binding.js` from current source. Use the retained artifact for comparison only; it was generated from the obsolete release commit and may no longer be correct. Review and commit **only `binding.js`**, if changed, through the normal reviewed change process. If generation changes other tracked files or fails, investigate before proceeding.
+3. Obtain green nonpublishing CI on the reviewed updated `main`. Only then manually delete the failed GitHub Release and tag and recreate the matching release. This local regeneration is exceptional recovery, never a routine release step.
+
+No artifact means generation/upload itself failed: resolve that failure before retrying. Missing outputs and failed validation also cannot unlock publication.
+
+Generated pushes use `GITHUB_TOKEN`. They do not recursively trigger push workflows ([GitHub token event semantics](https://docs.github.com/en/actions/concepts/security/github_token)); release publication only responds to a published GitHub Release. After reviewing a direct repair commit, run the nonpublishing `Build and test` workflow on `main` to obtain green CI before recreating the release. That exceptional check is not a second npm publication path.
 
 ## Package contents and assembly
 
@@ -19,7 +57,7 @@ The pinned napi-rs CLI still builds the addon with N-API 9 and generates `bindin
 
 The public CommonJS and ESM API stays unchanged. `index.js` delegates to the generated loader and adds a distribution-specific error with the original error as its cause. There is no separate platform selector, binary downloader, or install-time compilation. Other targets remain unsupported. Upstream's generated optional-package probes remain in the loader, but no platform packages are declared, installed, assembled, or published; supported installations load the adjacent binary. Loader tests cover all eight selections, musl filesystem/report detection, unsupported targets, and missing binaries.
 
-`Build and test` builds on eight targets on native runners. It tests each build on Node 22/24/26 and exercises real privileged IPv4/IPv6 loopback Echo before uploading a `bindings-<Rust target>` artifact containing the binary and generated loader. Assembly requires exactly these eight artifacts, nonempty binaries, and identical generated loaders matching the reviewed `binding.js`. A generator/version change that changes this file requires regeneration and review before CI passes.
+`Build and test` builds on eight targets on native runners. It tests each build on Node 22/24/26 and exercises real privileged IPv4/IPv6 loopback Echo before uploading a `bindings-<Rust target>` artifact containing the binary and generated loader. Assembly requires exactly these eight artifacts, nonempty binaries, and identical generated loaders matching the reviewed `binding.js`. Release automation regenerates this file before the matrix and stops for review if it differs; there is no manual loader-generation step in the release procedure.
 
 Musl builds use the official Rust 1.98.1 and Node 24 Alpine 3.23 images on matching native runners (`.github/musl.Dockerfile`), with dynamic musl linkage (`-C target-feature=-crt-static`) for the addon. Cargo explicitly uses native `gcc` so napi-rs does not select its default ARM64 cross-linker name. Host-side Actions avoid requiring glibc-dependent JavaScript actions inside Alpine. Clean install tests use the unmodified Node images without Rust or build tools.
 
@@ -44,54 +82,16 @@ node scripts/test-install.js
 
 The last command requires raw-socket privileges (passwordless `sudo -n` on Unix, or an elevated process; Windows CI runs as Administrator). A local single-target build is sufficient for `npm test`, but is deliberately insufficient for release packaging. `package:check` inspects the retained distribution, not a dry-run of the working tree.
 
-## One-time beta bootstrap
-
-The prepared version is `0.9.0-beta.1`, tag `v0.9.0-beta.1`, a GitHub prerelease and npm `next` release. Unsuffixed versions use `latest`; major zero alone does not imply a prerelease. Preparing these changes creates no tag, release, or npm publication.
-
-1. Merge only after review and green CI, including all 24 final-tarball install jobs. Have Homebridge npm administrators confirm permission to create/publish **only `@homebridge/node-icmp-ping`**, with the required organization/team access and 2FA. Verify the GitHub `npm-production` environment has the intended reviewers and deployment restrictions. Repository ownership and a registry 404 do not establish npm publishing rights. Arrange authenticated manual access separately; do not store publication credentials in the repository.
-2. After release approval, create the exact tag on the reviewed commit and matching non-draft GitHub Release with `prerelease: true`. Dispatch `Prepare or publish npm release` on that tag with the same `release_tag` and **`publish: false`**. Prepare-only still validates the tag, commit, version, and release metadata.
-3. Review all target/runtime results. Retain the original `npm-distribution` artifact and its workflow run, tag, and commit SHA before retention expires. Keep the two files together in `distribution/` at the matching checkout. Run `npm run package:check` and inspect the contents, attribution, and `integrity.json`. Keep an independent copy of the recorded SRI with your release records. Do not rebuild or repack for publication or recovery.
-4. After publication approval, perform the one-time authenticated manual bootstrap from that retained file:
-
-   ```sh
-   npm publish distribution/homebridge-node-icmp-ping-0.9.0-beta.1.tgz --registry https://registry.npmjs.org/ --access public --tag next --provenance=false
-   ```
-
-   Manual bootstrap outside supported CI must not request or claim automatic OIDC provenance. See npm's [provenance requirements](https://docs.npmjs.com/generating-provenance-statements/). Do not run the OIDC publisher locally; it requests provenance. Do not overlap manual and workflow publication; the workflow concurrency lock cannot serialize manual commands.
-5. Before any publication attempt, record existing dist-tags from a fresh registry packument (or confirmed package absence). The `lookup` helper returns null for an absent exact version and cannot establish that baseline alone. Read the exact version using `lookup(item)` below; if present, require `verify` to pass and skip the mutation. Immediately after **every** publish attempt, including errors, rerun this read-back against the original retained artifact:
-
-   ```sh
-   node - <<'NODE'
-   const { preflight, lookup, verify } = require('./scripts/publish.js');
-   (async () => {
-     const item = preflight('distribution', 'next');
-     const state = await lookup(item);
-     verify(item, state);
-     console.log(state.tags);
-   })().catch(error => { console.error(error); process.exitCode = 1; });
-   NODE
-   ```
-
-   Matching package name, version, SHA-512 `dist.integrity`, and `next` tag are required. Check that `latest` did not move to this beta and any prior `latest` remains unchanged; for a new package it should remain absent. Stop on any mismatch or registry failure; never blindly retry or automatically repair tags.
-6. Install `@homebridge/node-icmp-ping@next` in a clean project with scripts disabled; check the version, CommonJS/ESM API and real IPv4/IPv6 Echo on the supported matrix. Recheck integrity and dist-tags.
-7. Configure one [Trusted Publisher](https://docs.npmjs.com/trusted-publishers/) for `@homebridge/node-icmp-ping`: repository `homebridge/node-icmp-ping`, workflow `publish.yml`, environment `npm-production`, permitting direct `npm publish`. Confirm protected-environment reviewers and restrictions. No native-package trust relationships are needed. These settings must be verified externally; this repository change does not configure or verify live npm trust.
-
-If platform packages were already created during an earlier bootstrap, leave them alone and investigate their status separately. This distribution does not depend on them and does not publish or delete them.
-
-## Future releases through protected GitHub OIDC
-
-1. Update npm and Cargo versions and lockfiles together, regenerate the loader with the pinned CLI, push and require green CI.
-2. After approval, create an exact `v<version>` tag and matching non-draft GitHub Release. Its prerelease flag must match the version suffix.
-3. Dispatch the publish workflow on that exact tag with the same release tag. A prepare-only dispatch validates and assembles without publishing.
-4. After publication approval, dispatch with `publish: true`. This new dispatch builds and tests a new candidate; review its retained artifact and all test results before approving the protected environment. It is not a way to publish a previous prepare-only artifact.
-5. The protected job uses Node 24 and npm 11.19.1, verifies the retained tarball and record, and publishes that one file using OIDC and provenance. Prereleases use `next`, stable versions `latest`. It performs fresh registry read-back before accepting success.
-
-Tag/commit/version/channel validation, public scoped access, protected environment, OIDC permissions, and the publication concurrency group are retained. There is no native-before-root ordering or cross-package recovery.
-
 ## Publication recovery
+
+Preserve the original `npm-distribution` artifact and its workflow run, tag, commit SHA and checksum before retention expires. Do not rebuild or repack it for recovery. Native builds are not established to be byte-reproducible.
 
 The publisher verifies the retained SHA-512 and tarball contents before registry access. An existing exact version is accepted only when its canonical SHA-512 `dist.integrity` equals the original compressed bytes and the intended `next` or `latest` tag points to that version. Missing/malformed/unsupported integrity, mismatched identity or bytes, dist-tag drift, and registry failures stop publication. Tags are never automatically repaired.
 
 Every publish attempt is followed by fresh registry read-back, even when npm reports failure: the registry may have committed the package before the client lost the response. There are no blind mutation retries. Publication jobs share one concurrency group across refs and channels and never cancel an in-progress publication.
 
-Recover by rerunning only the failed **publish job in the original workflow run**, while its original `npm-distribution` artifact remains available. Do not rerun build jobs or dispatch a new workflow to recover. Native builds are not established to be byte-reproducible, and rebuilding/repacking may produce different bytes. Preserve the original artifact and checksum record before retention expires; stop and investigate any integrity difference. A retry with an already-published matching package and matching dist-tag succeeds without republishing. Manual bootstrap recovery uses the same retained artifact and verification procedure, with separately authorized authenticated access.
+Recover a failed or ambiguous npm request by rerunning **only the failed publish job in the original workflow run**, while its original `npm-distribution` artifact remains available. The job revalidates current GitHub Release identity/metadata and tag/commit before touching npm, then checks registry state before any mutation. An already-published matching package with matching dist-tag succeeds without republishing. Do not rerun build jobs, recreate the release, or start a new build to recover a possibly published version. Stop and investigate any registry or integrity mismatch. The delete/recreate procedure above applies specifically to a loader mismatch that prevented publication entirely.
+
+## Historical bootstrap
+
+The one-time authenticated bootstrap is complete and is not part of normal releases. No manual bootstrap command or dispatch with `publish=true` is needed. If legacy separate platform packages exist, leave them alone; this bundled distribution does not depend on, publish or delete them. Any exceptional manual registry recovery requires separate investigation and the original retained artifact, with the same identity/integrity/dist-tag checks; it must not overlap an active workflow publication.
