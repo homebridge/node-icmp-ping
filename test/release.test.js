@@ -224,3 +224,19 @@ test('workflow has a single release publication path and explicit loader gate', 
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   assert.doesNotMatch(ci, /id-token: write|scripts\/publish.js|npm publish/);
 });
+
+for (const version of ['1.0.0', '1.1.0-rc.2']) test(`release validation accepts only version drift for ${version}`, t => {
+  const s = sandbox(t);
+  const reviewed = fs.readFileSync(path.join(root, 'binding.js'), 'utf8');
+  const loaderPath = path.join(s.checkout, 'binding.js');
+  fs.writeFileSync(loaderPath, reviewed);
+  fs.writeFileSync(path.join(s.checkout, 'package.json'), JSON.stringify(fixture(version).pkg));
+  s.git(s.checkout, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'reviewed loader and version bump');
+  const generated = reviewed.split(require('../package.json').version).join(version);
+  for (const [bytes, changed] of [[generated, false], [reviewed, true], [generated.replace(version, '9.9.9'), true], [generated + '\n// drift', true]]) {
+    fs.writeFileSync(loaderPath, bytes);
+    fs.writeFileSync(s.output, '');
+    assert.equal(s.run('release-loader.js').status, 0);
+    assert.match(fs.readFileSync(s.output, 'utf8'), new RegExp(`changed=${changed}`));
+  }
+});
