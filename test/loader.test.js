@@ -74,7 +74,7 @@ for (const arch of ['x64', 'arm64']) test(`missing musl ${arch} never falls back
 });
 
 const { loaderForVersion } = require('../scripts/loader-version.js');
-const embedded = require('../package.json').version;
+const embedded = loader.match(/bindingPackageVersion !== '([^']+)'/)[1];
 for (const version of ['1.0.0', '1.1.0-rc.2']) test(`reviewed loader permits only embedded version changes to ${version}`, () => {
   // Independent fixture: napi-rs embeds the version 27 times in guards and
   // 27 times in diagnostics, including its WASI fallback.

@@ -22,6 +22,9 @@ function fixture(fn) {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true });
       fs.writeFileSync(path.join(source, name), binaries.includes(name) ? `fixture ${name}` : fs.readFileSync(path.join(__dirname, '..', name)));
     }
+    // Model the current-version loader produced by a native build.
+    const loaderPath = path.join(source, 'binding.js');
+    fs.writeFileSync(loaderPath, require('../scripts/loader-version.js').loaderForVersion(fs.readFileSync(loaderPath, 'utf8'), pkg.version));
     function pack() {
       const [result] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', distribution], { cwd: source, encoding: 'utf8', shell: process.platform === 'win32' }));
       fs.writeFileSync(path.join(distribution, 'integrity.json'), JSON.stringify({ name: pkg.name, version: pkg.version, filename: result.filename, integrity: result.integrity }));
@@ -114,8 +117,9 @@ for (const version of ['1.0.0', '1.1.0-rc.2']) test(`assembly and retained tarba
   const metadata = { ...pkg, version };
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(metadata));
   const loaderPath = path.join(source, 'binding.js');
-  const reviewed = fs.readFileSync(loaderPath, 'utf8');
-  const generated = reviewed.split(pkg.version).join(version);
+  const reviewed = fs.readFileSync(path.join(__dirname, '../binding.js'), 'utf8');
+  fs.writeFileSync(loaderPath, reviewed);
+  const generated = reviewed.split(reviewed.match(/bindingPackageVersion !== '([^']+)'/)[1]).join(version);
   const artifacts = path.join(source, 'artifacts');
   for (const [target, platform] of Object.entries(targets)) {
     const dir = path.join(artifacts, `bindings-${target}`);
