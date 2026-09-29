@@ -4,7 +4,6 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
-const { loaderForVersion } = require('./loader-version.js');
 const { targets, binaries, tarballName } = require('./package-identity.js');
 const { checkManifest, inspectTarball } = require('./check-package.js');
 const { integrity, preflight } = require('./publish.js');
@@ -13,7 +12,7 @@ function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distributi
   checkManifest(pkg);
   const directories = Object.keys(targets).map(target => `bindings-${target}`);
   assert.deepEqual(fs.readdirSync(artifactDirectory).sort(), directories.sort(), 'All eight intended build artifacts are required');
-  const loader = loaderForVersion(fs.readFileSync('binding.js', 'utf8'), pkg.version);
+  const loader = fs.readFileSync('binding.js', 'utf8');
   const inputs = Object.entries(targets).map(([target, platform]) => {
     const dir = path.join(artifactDirectory, `bindings-${target}`);
     const filename = `icmp_ping.${platform}.node`;
@@ -27,8 +26,6 @@ function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distributi
   const extra = fs.readdirSync('.').filter(f => f.endsWith('.node') && !binaries.includes(f));
   assert.equal(extra.length, 0, `Unexpected local binaries: ${extra}`);
   fs.mkdirSync(outputDirectory, { recursive: true });
-  // All artifacts matched the reviewed loader at this version; pack those bytes.
-  fs.writeFileSync('binding.js', loader);
   for (const { filename, bytes } of inputs) fs.writeFileSync(filename, bytes);
   const [result] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', path.resolve(outputDirectory)], { encoding: 'utf8', shell: process.platform === 'win32' }));
   assert.equal(result.filename, tarballName(pkg.name, pkg.version));

@@ -72,24 +72,3 @@ for (const arch of ['x64', 'arm64']) test(`missing musl ${arch} never falls back
   assert(result.error.cause);
   assert(!result.requested.some(name => name.includes('-gnu')));
 });
-
-const { loaderForVersion } = require('../scripts/loader-version.js');
-const embedded = loader.match(/bindingPackageVersion !== '([^']+)'/)[1];
-for (const version of ['1.0.0', '1.1.0-rc.2']) test(`reviewed loader permits only embedded version changes to ${version}`, () => {
-  // Independent fixture: napi-rs embeds the version 27 times in guards and
-  // 27 times in diagnostics, including its WASI fallback.
-  const generated = loader.split(embedded).join(version);
-  assert.equal(loader.split(embedded).length - 1, 54);
-  assert.equal(loaderForVersion(loader, version), generated);
-  assert.equal(loaderForVersion(generated, version), generated);
-  for (const changed of [
-    generated.replace(version, '9.9.9'),
-    generated.replace(`expected ${version}`, 'expected 9.9.9'),
-    generated.replace("!== '0'", "=== '0'"),
-    generated.replace('linux-x64-gnu', 'linux-x64-musl'),
-    generated + '\n// changed',
-    generated.replace(/\n/g, '\r\n'),
-  ]) assert.notEqual(loaderForVersion(loader, version), changed);
-  const unrelated = loader + `\n// unrelated version ${embedded}\n`;
-  assert.equal(loaderForVersion(unrelated, version), generated + `\n// unrelated version ${embedded}\n`);
-});

@@ -209,6 +209,18 @@ for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-
   });
 }
 // Guard the job graph as well as the scripts: repair success must never unlock build.
+test('release validation still rejects version-only drift until the generated loader is committed', t => {
+  const s = sandbox(t);
+  const tracked = fs.readFileSync(path.join(root, 'binding.js'), 'utf8');
+  const version = tracked.match(/bindingPackageVersion !== '([^']+)'/)[1];
+  const next = version === '1.0.0' ? '2.0.0' : '1.0.0';
+  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked);
+  fs.writeFileSync(path.join(s.checkout, 'package.json'), JSON.stringify(fixture(next, false).pkg));
+  s.git(s.checkout, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'version bump');
+  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked.split(version).join(next));
+  assert.equal(s.run('release-loader.js').status, 0);
+  assert.match(fs.readFileSync(s.output, 'utf8'), /changed=true/);
+});
 test('workflow has a single release publication path and explicit loader gate', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish.yml'), 'utf8');
   assert.match(workflow, /on:\n  release:\n    types: \[published\]/);
@@ -223,20 +235,4 @@ test('workflow has a single release publication path and explicit loader gate', 
   assert.equal((workflow.match(/id-token: write/g) || []).length, 1);
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   assert.doesNotMatch(ci, /id-token: write|scripts\/publish.js|npm publish/);
-});
-
-for (const version of ['1.0.0', '1.1.0-rc.2']) test(`release validation accepts only version drift for ${version}`, t => {
-  const s = sandbox(t);
-  const reviewed = fs.readFileSync(path.join(root, 'binding.js'), 'utf8');
-  const loaderPath = path.join(s.checkout, 'binding.js');
-  fs.writeFileSync(loaderPath, reviewed);
-  fs.writeFileSync(path.join(s.checkout, 'package.json'), JSON.stringify(fixture(version).pkg));
-  s.git(s.checkout, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'reviewed loader and version bump');
-  const generated = reviewed.split(reviewed.match(/bindingPackageVersion !== '([^']+)'/)[1]).join(version);
-  for (const [bytes, changed] of [[generated, false], [reviewed, true], [generated.replace(version, '9.9.9'), true], [generated + '\n// drift', true]]) {
-    fs.writeFileSync(loaderPath, bytes);
-    fs.writeFileSync(s.output, '');
-    assert.equal(s.run('release-loader.js').status, 0);
-    assert.match(fs.readFileSync(s.output, 'utf8'), new RegExp(`changed=${changed}`));
-  }
 });

@@ -22,9 +22,6 @@ function fixture(fn) {
       fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true });
       fs.writeFileSync(path.join(source, name), binaries.includes(name) ? `fixture ${name}` : fs.readFileSync(path.join(__dirname, '..', name)));
     }
-    // Model the current-version loader produced by a native build.
-    const loaderPath = path.join(source, 'binding.js');
-    fs.writeFileSync(loaderPath, require('../scripts/loader-version.js').loaderForVersion(fs.readFileSync(loaderPath, 'utf8'), pkg.version));
     function pack() {
       const [result] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', distribution], { cwd: source, encoding: 'utf8', shell: process.platform === 'win32' }));
       fs.writeFileSync(path.join(distribution, 'integrity.json'), JSON.stringify({ name: pkg.name, version: pkg.version, filename: result.filename, integrity: result.integrity }));
@@ -110,38 +107,4 @@ test('assembly uses all eight tested artifacts, preserves manifest and refuses t
   fs.writeFileSync(loaderPath, loader);
   assert.deepEqual(fs.readFileSync(path.join(source, 'package.json')), original);
   assert.throws(run, /Distribution directory must be empty/);
-}));
-
-for (const version of ['1.0.0', '1.1.0-rc.2']) test(`assembly and retained tarball accept a version-only bump to ${version}`, () => fixture(({ source }) => {
-  fs.cpSync(path.join(__dirname, '../scripts'), path.join(source, 'scripts'), { recursive: true });
-  const metadata = { ...pkg, version };
-  fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(metadata));
-  const loaderPath = path.join(source, 'binding.js');
-  const reviewed = fs.readFileSync(path.join(__dirname, '../binding.js'), 'utf8');
-  fs.writeFileSync(loaderPath, reviewed);
-  const generated = reviewed.split(reviewed.match(/bindingPackageVersion !== '([^']+)'/)[1]).join(version);
-  const artifacts = path.join(source, 'artifacts');
-  for (const [target, platform] of Object.entries(targets)) {
-    const dir = path.join(artifacts, `bindings-${target}`);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'binding.js'), generated);
-    fs.writeFileSync(path.join(dir, `icmp_ping.${platform}.node`), `tested ${target}`);
-  }
-  const run = script => execFileSync(process.execPath, [script], { cwd: source, encoding: 'utf8', stdio: 'pipe' });
-  // Exercise the last artifact too: every target must match the current version.
-  const last = path.join(artifacts, `bindings-${Object.keys(targets).at(-1)}`, 'binding.js');
-  for (const bad of [reviewed, generated.replace(version, '9.9.9'), generated + '\n// drift']) {
-    fs.writeFileSync(last, bad);
-    assert.throws(() => run('scripts/assemble.js'), /Generated loader differs/);
-    assert.equal(fs.readFileSync(loaderPath, 'utf8'), reviewed);
-    assert.equal(fs.existsSync(path.join(source, 'distribution')), false);
-  }
-  fs.writeFileSync(last, generated);
-  assert.match(run('scripts/assemble.js'), /Validated/);
-  assert.equal(fs.readFileSync(loaderPath, 'utf8'), generated);
-  // Publish/install jobs start from a fresh checkout with the old reviewed loader.
-  fs.writeFileSync(loaderPath, reviewed);
-  assert.match(run('scripts/check-package.js'), /Validated 17 files/);
-  fs.writeFileSync(loaderPath, reviewed.replace(/\n/g, '\r\n'));
-  assert.match(run('scripts/check-package.js'), /Validated 17 files/);
 }));

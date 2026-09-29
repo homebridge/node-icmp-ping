@@ -2,7 +2,6 @@
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const assert = require('node:assert/strict');
-const { loaderForVersion } = require('./loader-version.js');
 const pkg = require('../package.json');
 const { rootName, targets, packageFiles } = require('./package-identity.js');
 
@@ -43,7 +42,7 @@ function inspectTarball(tarball) {
   for (const name of packageFiles) assert(read(name).length > 0, `Empty package file: ${name}`);
   // Windows checkouts may use CRLF; the generated and packed loader uses LF.
   const reviewedLoader = fs.readFileSync(require.resolve('../binding.js'), 'utf8').replace(/\r\n/g, '\n');
-  assert.equal(read('binding.js').toString(), loaderForVersion(reviewedLoader, pkg.version), 'Tarball loader differs from the reviewed generated loader');
+  assert.equal(read('binding.js').toString(), reviewedLoader, 'Tarball loader differs from the reviewed generated loader');
   return metadata;
 }
 
