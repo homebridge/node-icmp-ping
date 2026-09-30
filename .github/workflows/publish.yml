@@ -67,7 +67,7 @@ jobs:
   build:
     needs: validate
     if: needs.validate.outputs.loader_changed == 'false'
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/native.yml
   publish:
     if: github.event_name == 'release' && github.event.action == 'published' && needs.validate.outputs.loader_changed == 'false'
     needs: [validate, build]
