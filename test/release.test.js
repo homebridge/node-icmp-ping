@@ -209,6 +209,18 @@ for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-
   });
 }
 // Guard the job graph as well as the scripts: repair success must never unlock build.
+test('release validation still rejects version-only drift until the generated loader is committed', t => {
+  const s = sandbox(t);
+  const tracked = fs.readFileSync(path.join(root, 'binding.js'), 'utf8');
+  const version = tracked.match(/bindingPackageVersion !== '([^']+)'/)[1];
+  const next = version === '1.0.0' ? '2.0.0' : '1.0.0';
+  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked);
+  fs.writeFileSync(path.join(s.checkout, 'package.json'), JSON.stringify(fixture(next, false).pkg));
+  s.git(s.checkout, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'version bump');
+  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked.split(version).join(next));
+  assert.equal(s.run('release-loader.js').status, 0);
+  assert.match(fs.readFileSync(s.output, 'utf8'), /changed=true/);
+});
 test('workflow has a single release publication path and explicit loader gate', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish.yml'), 'utf8');
   assert.match(workflow, /on:\n  release:\n    types: \[published\]/);
