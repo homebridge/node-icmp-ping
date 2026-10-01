@@ -1,0 +1,165 @@
+{
+  "run": {
+    "id": 36660590695,
+    "run_attempt": 1,
+    "workflow_id": 361615936,
+    "event": "release",
+    "path": ".github/workflows/publish.yml",
+    "head_sha": "34d714b9e29b5dab3db4e8b4f13cfb9df2013188",
+    "head_branch": "v1.0.0",
+    "status": "completed",
+    "conclusion": "failure",
+    "repository": {
+      "id": 1376297632
+    },
+    "head_repository": {
+      "id": 1376297632
+    }
+  },
+  "jobs": [
+    {
+      "name": "validate",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / x86_64-unknown-linux-musl (native Alpine)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / aarch64-apple-darwin",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / aarch64-unknown-linux-gnu",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / aarch64-unknown-linux-musl (native Alpine)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / aarch64-pc-windows-msvc",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / x86_64-apple-darwin",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / x86_64-unknown-linux-gnu",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / x86_64-pc-windows-msvc",
+      "conclusion": "success"
+    },
+    {
+      "name": "repair-loader",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "build / package",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine x64, Node 22)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine arm64, Node 22)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine arm64, Node 24)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine x64, Node 24)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine x64, Node 26)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (Alpine arm64, Node 26)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-11-arm, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15-intel, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-11-arm, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15-intel, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-2025, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-11-arm, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15-intel, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-2025, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (windows-2025, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04-arm, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04-arm, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15, Node 22.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (macos-15, Node 26.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "build / Install bundled tarball (ubuntu-24.04-arm, Node 24.x)",
+      "conclusion": "success"
+    },
+    {
+      "name": "publish",
+      "conclusion": "failure"
+    }
+  ]
+}

@@ -2,6 +2,12 @@ name: Publish GitHub Release to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Recover original v1.0.0 artifact 11073922734 (type recover-v1.0.0)'
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -102,3 +108,30 @@ jobs:
         env:
           CHANNEL: ${{ needs.validate.outputs.channel }}
         run: node scripts/publish.js
+  recover-v1:
+    if: github.repository == 'homebridge/node-icmp-ping' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'recover-v1.0.0'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: npm-production-publication
+      cancel-in-progress: false
+    environment: npm-production
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.19.1
+      # No build, assembly, pack, or caller-selected artifact/ref in this route.
+      - name: Validate original release and recover only its pinned tested archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/recover-v1.js

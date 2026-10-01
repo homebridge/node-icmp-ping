@@ -17,7 +17,7 @@ function preflight(directory, channel) {
   assert.equal(channel, expectedChannel, 'Unsafe release channel');
   const filename = tarballName(pkg.name, pkg.version);
   assert.deepEqual(fs.readdirSync(directory).sort(), [filename, 'integrity.json'].sort(), 'Expected one tarball and its retained integrity record');
-  const tarball = path.join(directory, filename);
+  const tarball = path.resolve(directory, filename);
   const record = JSON.parse(fs.readFileSync(path.join(directory, 'integrity.json'), 'utf8'));
   const digest = integrity(fs.readFileSync(tarball));
   assert.deepEqual(record, { name: pkg.name, version: pkg.version, filename, integrity: digest }, 'Retained tarball SHA-512 or identity mismatch');
