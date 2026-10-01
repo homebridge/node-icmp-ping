@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
+const { setTimeout: sleep } = require('node:timers/promises');
 const pkg = require('../package.json');
 const { rootName, tarballName } = require('./package-identity.js');
 const { createHash, randomUUID } = require('node:crypto');
@@ -59,7 +60,7 @@ function verify(item, state) {
 async function publish(item, { read = lookup, write = item => {
   assert.equal(integrity(fs.readFileSync(item.tarball)), item.integrity, 'Tarball changed after preflight');
   execFileSync('npm', ['publish', item.tarball, '--registry', 'https://registry.npmjs.org/', '--access', 'public', '--provenance', '--tag', item.channel], { stdio: 'inherit' });
-}, log = console.log } = {}) {
+}, log = console.log, delay = sleep } = {}) {
   const existing = await read(item);
   if (existing) {
     verify(item, existing);
@@ -70,7 +71,17 @@ async function publish(item, { read = lookup, write = item => {
   try { await write(item); } catch (error) { publishError = error; }
   // Even a failed client response may have followed a committed publication.
   // Never retry the mutation here; fresh registry state is the sole proof.
-  try { verify(item, await read(item)); } catch (error) {
+  try {
+    let state = await read(item);
+    // Retry only explicit absence: five fresh reads over 30 seconds of backoff.
+    // Present-but-invalid metadata and lookup errors must fail immediately.
+    for (const milliseconds of [2000, 4000, 8000, 16000]) {
+      if (state !== null) break;
+      await delay(milliseconds);
+      state = await read(item);
+    }
+    verify(item, state);
+  } catch (error) {
     if (publishError) throw new Error(`npm publish failed and read-back could not verify ${item.name}@${item.version}: ${error.message}`, { cause: publishError });
     throw error;
   }

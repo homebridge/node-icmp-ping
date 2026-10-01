@@ -17,6 +17,7 @@ function harness(count = 0) {
   const reads = [];
   return { registry, writes, reads, options: {
     log() {},
+    async delay() {},
     async read(item) { reads.push(item.name); return registry.get(item.name) || null; },
     async write(item) { writes.push(item.name); registry.set(item.name, state(item)); },
   } };
@@ -171,4 +172,63 @@ test('default npm writer receives an absolute tarball path from relative preflig
   `;
   const result = spawnSync(process.execPath, ['-e', script], { cwd: temporary, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
+});
+
+for (const clientFails of [false, true]) test(`delayed registry visibility succeeds with one publish (client failure: ${clientFails})`, async () => {
+  const events = [];
+  let reads = 0;
+  await publish(item, {
+    log() {},
+    read: async received => {
+      assert.equal(received, item);
+      events.push('read');
+      return ++reads < 4 ? null : state(item);
+    },
+    write: async () => {
+      events.push('publish');
+      if (clientFails) throw new Error('lost response');
+    },
+    delay: async milliseconds => { events.push(milliseconds); },
+  });
+  assert.deepEqual(events, ['read', 'publish', 'read', 2000, 'read', 4000, 'read']);
+});
+
+test('absent read-back exhausts bounded backoff without repeating publish', async () => {
+  const h = harness();
+  const delays = [];
+  h.options.write = async item => { h.writes.push(item.name); };
+  h.options.delay = async milliseconds => { delays.push(milliseconds); };
+  await assert.rejects(publish(item, h.options), /Registry read-back did not establish/);
+  assert.deepEqual(delays, [2000, 4000, 8000, 16000]);
+  assert.equal(h.reads.length, 6); // One preflight plus five post-mutation reads.
+  assert.deepEqual(h.writes, [item.name]);
+});
+
+for (const [label, corrupt, expected] of [
+  ['name', s => { s.metadata.name = 'wrong'; }, /name mismatch/],
+  ['version', s => { s.metadata.version = '0.0.0'; }, /version mismatch/],
+  ['integrity', s => { s.metadata.dist.integrity = integrity(Buffer.from('wrong')); }, /integrity mismatch/],
+  ['malformed integrity', s => { s.metadata.dist.integrity = 'sha512-bad'; }, /unsupported registry integrity/],
+  ['tag', s => { s.tags[item.channel] = '0.0.0'; }, /Dist-tag drift/],
+  ['network', null, /network/],
+]) test(`post-publish ${label} failure after absence stops immediately`, async () => {
+  let reads = 0;
+  let writes = 0;
+  const delays = [];
+  await assert.rejects(publish(item, {
+    log() {},
+    read: async () => {
+      if (++reads <= 2) return null;
+      if (reads > 3) return state(item); // Must never accept this later state.
+      if (!corrupt) throw new Error('network');
+      const invalid = state(item);
+      corrupt(invalid);
+      return invalid;
+    },
+    write: async () => { writes++; },
+    delay: async milliseconds => { delays.push(milliseconds); },
+  }), expected);
+  assert.equal(reads, 3);
+  assert.equal(writes, 1);
+  assert.deepEqual(delays, [2000]);
 });
