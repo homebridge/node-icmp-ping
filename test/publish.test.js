@@ -135,3 +135,40 @@ for (const [releaseVersion, prerelease, expected] of [
   assert.equal(channel(releaseVersion, prerelease), expected);
   assert.throws(() => channel(releaseVersion, !prerelease), /prerelease flag mismatches/);
 });
+
+test('default npm writer receives an absolute tarball path from relative preflight', async t => {
+  const os = require('node:os');
+  const { spawnSync } = require('node:child_process');
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-argument-'));
+  t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
+  // A child isolates the transport stub before publish.js captures execFileSync.
+  // Only tar metadata inspection is stubbed; real preflight reads/checks retained bytes.
+  const script = `
+    const assert = require('node:assert/strict');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const cp = require('node:child_process');
+    const pkg = require(${JSON.stringify(require.resolve('../package.json'))});
+    const filename = require(${JSON.stringify(require.resolve('../scripts/package-identity.js'))}).tarballName(pkg.name, pkg.version);
+    let called = false;
+    cp.execFileSync = (command, args, options) => {
+      assert.equal(command, 'npm');
+      assert.equal(path.isAbsolute(args[1]), true, 'npm tarball argument must be absolute');
+      assert.deepEqual(args, ['publish', path.resolve('distribution', filename), '--registry', 'https://registry.npmjs.org/', '--access', 'public', '--provenance', '--tag', ${JSON.stringify(releaseChannel)}]);
+      assert.equal(options.stdio, 'inherit');
+      called = true;
+    };
+    require(${JSON.stringify(require.resolve('../scripts/check-package.js'))}).inspectTarball = () => pkg;
+    const { integrity, preflight, publish } = require(${JSON.stringify(require.resolve('../scripts/publish.js'))});
+    fs.mkdirSync('distribution');
+    fs.writeFileSync(path.join('distribution', filename), 'retained test bytes');
+    fs.writeFileSync('distribution/integrity.json', JSON.stringify({name: pkg.name, version: pkg.version, filename, integrity: integrity(Buffer.from('retained test bytes'))}));
+    const item = preflight('distribution', ${JSON.stringify(releaseChannel)});
+    let reads = 0;
+    publish(item, { log() {}, read: async () => ++reads === 1 ? null : ({metadata: { name: item.name, version: item.version, dist: {integrity: item.integrity}}, tags: {[item.channel]: item.version}}) })
+      .then(() => assert(called, 'default writer must execute'))
+      .catch(error => { console.error(error); process.exitCode = 1; });
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], { cwd: temporary, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
