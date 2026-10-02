@@ -8,7 +8,7 @@ One public npm package, `@homebridge/node-icmp-ping`, contains all eight native 
 2. In GitHub, choose **Create a new release**. Choose/create the exact tag `v<version>` on that reviewed `main` commit. For example, `0.9.0-beta.2` requires `v0.9.0-beta.2`. Existing tags must resolve to that same commit; do not move a published version's tag.
 3. Mark beta/RC/other suffixed versions as **prerelease**. Mark an unsuffixed stable version as a normal/latest GitHub release. Fill in the release notes and click **Publish release**.
 
-That click starts `Publish GitHub Release to npm` (`publish.yml`). The only manual publication dispatch is the tightly pinned v1.0.0 recovery described below. GitHub prereleases select npm `next`; normal stable releases select `latest`. Marking a beta as stable, or a stable version as prerelease, fails validation. Major zero alone does not imply prerelease.
+That click starts `Publish GitHub Release to npm` (`publish.yml`). GitHub prereleases select npm `next`; normal stable releases select `latest`. Marking a beta as stable, or a stable version as prerelease, fails validation. Major zero alone does not imply prerelease.
 
 Automation validates the published event, exact tag, event commit, checked-out commit, main ancestry, all four version files, and current GitHub Release identity/channel. It installs dependencies from `package-lock.json` with `npm ci`, then runs the canonical `npm run build` using locked `@napi-rs/cli` (currently 3.10.5) and Cargo's `--locked` flag to regenerate and verify `binding.js`. An identical loader automatically unlocks the existing eight native builds, assembly, and all 24 exact-retained-tarball installs on Node 22/24/26. Only after all succeed does the `npm-production` job recheck the live release/tag and publish the exact retained tarball using Node 24, npm 11.19.1, OIDC Trusted Publishing and provenance. Registry preflight/read-back verifies identity, SHA-512 integrity and the intended dist-tag.
 
@@ -103,26 +103,6 @@ The publisher verifies the retained SHA-512 and tarball contents before registry
 Every publish attempt is followed by fresh registry read-back, even when npm reports failure: the registry may have committed the package before the client lost the response. There are no blind mutation retries. Publication jobs share one concurrency group across refs and channels and never cancel an in-progress publication.
 
 When the original publisher code is correct, recover a failed or ambiguous npm request by rerunning **only the failed publish job in the original workflow run**, while its original `npm-distribution` artifact remains available. The job revalidates current GitHub Release identity/metadata and tag/commit before touching npm, then checks registry state before any mutation. An already-published matching package with matching dist-tag succeeds without republishing. Do not rerun build jobs, recreate the release, or start a new build to recover a possibly published version. Stop and investigate any registry or integrity mismatch. The delete/recreate procedure above applies specifically to a loader mismatch that prevented publication entirely.
-
-### Reviewed v1.0.0 publisher-code recovery
-
-The original v1.0.0 publisher passed `distribution/homebridge-node-icmp-ping-1.0.0.tgz` to npm. npm interpreted that ambiguous path as GitHub `owner/repository` shorthand and attempted an SSH Git lookup. The corrected publisher uses an absolute path. Rerunning the original job would still execute the broken tagged publisher.
-
-After reviewing and merging the recovery PR to `main`, an authorized maintainer may explicitly run **Publish GitHub Release to npm** (`publish.yml`) on **main**, entering `recover-v1.0.0` in the confirmation field. This is a publication action, not a dry run. Review the selected main commit and existing `npm-production` environment approval before proceeding. Do not dispatch from this PR branch, rerun the failed release, rebuild/repack, bump the version, or move/delete/recreate the existing release/tag.
-
-The separate recovery job cannot enter validation/build/loader-repair/assembly jobs. It accepts no version, ref, run, artifact, channel or checksum overrides. It pins:
-
-- GitHub Release ID `399672199`, tag `v1.0.0`, stable channel `latest`, original commit `34d714b9e29b5dab3db4e8b4f13cfb9df2013188`.
-- Original release run `36660590695`, attempt `1`, workflow ID `361615936`, and its successful validation, eight builds, assembly and all 24 installation jobs.
-- Original `npm-distribution` artifact ID `11073922734` and ZIP SHA-256 `a78cd6cb5e491b7298b3e0ae85a144460a8dac4f29ec5a6d60936da1c2fd29d9`.
-
-It downloads that exact archive through the GitHub API, fails on archive checksum mismatch, and extracts only its original tarball and `integrity.json` into a fresh temporary directory. It never regenerates either file. Original version-file validation, live release identity, unmoved tag, main ancestry, current-main checkout, retained SHA-512, package contents and loader checks must pass. It rechecks release/tag identity after download. Changed package/version/loader validation inputs, an expired/deleted artifact, rerun source run or incomplete/failed original test evidence stop recovery; there is no rebuild fallback.
-
-Recovery retains the same `npm-production` environment, `npm-production-publication` concurrency group, Node/npm versions, `id-token: write`, public access, provenance and existing registry checks. The [Trusted Publisher](https://docs.npmjs.com/trusted-publishers/) must still match `homebridge/node-icmp-ping`, **publish.yml**, and **npm-production**. Environment restrictions must permit this reviewed main dispatch; do not bypass them or introduce an npm token. Provenance describes the recovery workflow/main commit that publishes the bytes; it does not pretend to be the original build run. The pinned archive and original run/job checks establish the connection to the tested release bytes.
-
-If npm `1.0.0` already exists with the original SHA-512 and `latest` points to it, recovery verifies it without publishing. Inconsistent identity/integrity, dist-tag drift, or registry lookup failure aborts without mutation or automatic tag repair. Read-back verifies any new publication, including ambiguous client failures.
-
-This exception is intentionally limited to v1.0.0: accepting arbitrary historic runs would require a broader reviewed trust/identity policy. Remove the exception after verified recovery; future normal releases retain the original release job graph, with only the absolute-path publisher fix.
 
 ## Historical bootstrap
 

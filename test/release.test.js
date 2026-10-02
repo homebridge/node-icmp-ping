@@ -221,7 +221,7 @@ test('release validation still rejects version-only drift until the generated lo
   assert.equal(s.run('release-loader.js').status, 0);
   assert.match(fs.readFileSync(s.output, 'utf8'), /changed=true/);
 });
-test('workflow preserves the normal release path and isolates pinned recovery', () => {
+test('workflow preserves the normal release path', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish.yml'), 'utf8');
   assert.match(workflow, /on:\n  release:\n    types: \[published\]/);
   assert.doesNotMatch(workflow, /inputs\.publish|NODE_AUTH_TOKEN|NPM_TOKEN/);
@@ -232,16 +232,9 @@ test('workflow preserves the normal release path and isolates pinned recovery', 
   assert.match(repair, /contents: write/);
   assert.doesNotMatch(repair, /npm (ci|install|publish)|id-token: write/);
   assert.match(workflow, /environment: npm-production/);
-  assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
-  const recovery = workflow.split('  recover-v1:')[1];
-  assert.match(recovery, /github.event_name == 'workflow_dispatch' && github.ref == 'refs\/heads\/main' && inputs.confirmation == 'recover-v1.0.0'/);
-  assert.match(recovery, /environment: npm-production/);
-  assert.match(recovery, /group: npm-production-publication\n      cancel-in-progress: false/);
-  assert.match(recovery, /actions: read/);
-  assert.match(recovery, /node scripts\/recover-v1.js/);
-  assert.doesNotMatch(recovery, /needs:|npm (ci|pack|run build)|assemble.js|native.yml|download-artifact/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 1);
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
   assert.doesNotMatch(ci, /id-token: write|scripts\/publish.js|npm publish/);
 });
 
-require('./recovery.test.js');
+
