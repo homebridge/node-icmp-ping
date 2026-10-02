@@ -1,29 +1,10 @@
 'use strict';
 const fs = require('node:fs');
-const path = require('node:path');
+const { setTimeout: sleep } = require('node:timers/promises');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
-const pkg = require('../package.json');
-const { rootName, tarballName } = require('./package-identity.js');
-const { createHash, randomUUID } = require('node:crypto');
-
-function integrity(bytes) {
-  return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
-}
-
-function preflight(directory, channel) {
-  assert.equal(pkg.name, rootName, 'Unexpected root package identity');
-  const expectedChannel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
-  assert.equal(channel, expectedChannel, 'Unsafe release channel');
-  const filename = tarballName(pkg.name, pkg.version);
-  assert.deepEqual(fs.readdirSync(directory).sort(), [filename, 'integrity.json'].sort(), 'Expected one tarball and its retained integrity record');
-  const tarball = path.resolve(directory, filename);
-  const record = JSON.parse(fs.readFileSync(path.join(directory, 'integrity.json'), 'utf8'));
-  const digest = integrity(fs.readFileSync(tarball));
-  assert.deepEqual(record, { name: pkg.name, version: pkg.version, filename, integrity: digest }, 'Retained tarball SHA-512 or identity mismatch');
-  const metadata = require('./check-package.js').inspectTarball(tarball);
-  return { name: metadata.name, version: metadata.version, channel, tarball, integrity: digest, metadata };
-}
+const { randomUUID } = require('node:crypto');
+const { integrity, preflight } = require('./check-package.js');
 
 // Read the full packument directly, bypassing npm's local cache and requesting
 // revalidation from intermediaries. A unique URL prevents cached release decisions.
@@ -59,7 +40,7 @@ function verify(item, state) {
 async function publish(item, { read = lookup, write = item => {
   assert.equal(integrity(fs.readFileSync(item.tarball)), item.integrity, 'Tarball changed after preflight');
   execFileSync('npm', ['publish', item.tarball, '--registry', 'https://registry.npmjs.org/', '--access', 'public', '--provenance', '--tag', item.channel], { stdio: 'inherit' });
-}, log = console.log } = {}) {
+}, log = console.log, delay = sleep } = {}) {
   const existing = await read(item);
   if (existing) {
     verify(item, existing);
@@ -70,7 +51,17 @@ async function publish(item, { read = lookup, write = item => {
   try { await write(item); } catch (error) { publishError = error; }
   // Even a failed client response may have followed a committed publication.
   // Never retry the mutation here; fresh registry state is the sole proof.
-  try { verify(item, await read(item)); } catch (error) {
+  try {
+    let state = await read(item);
+    // Retry only explicit absence: five fresh reads over 30 seconds of backoff.
+    // Present-but-invalid metadata and lookup errors must fail immediately.
+    for (const milliseconds of [2000, 4000, 8000, 16000]) {
+      if (state !== null) break;
+      await delay(milliseconds);
+      state = await read(item);
+    }
+    verify(item, state);
+  } catch (error) {
     if (publishError) throw new Error(`npm publish failed and read-back could not verify ${item.name}@${item.version}: ${error.message}`, { cause: publishError });
     throw error;
   }
@@ -83,4 +74,4 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
-module.exports = { integrity, preflight, lookup, verify, publish };
+module.exports = { lookup, verify, publish };

@@ -2,7 +2,13 @@
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
-const { channel } = require('./release-policy.js');
+function channel(version, prerelease) {
+  assert(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version), 'Invalid release version');
+  const suffix = version.split('-').slice(1).join('-');
+  if (suffix) for (const part of suffix.split('.')) assert(!/^0\d+$/.test(part), 'Invalid numeric prerelease identifier');
+  assert.equal(prerelease, !!suffix, 'Release prerelease flag mismatches version');
+  return suffix ? 'next' : 'latest';
+}
 
 // These deliberately accept only this repository's explicit package sections.
 // Do not accidentally match a dependency's version in either Cargo file.
@@ -65,4 +71,4 @@ function check(env = process.env) {
   return result;
 }
 if (require.main === module) check();
-module.exports = { validate, validateVersions, cargoVersion, check };
+module.exports = { validate, validateVersions, cargoVersion, check, channel };

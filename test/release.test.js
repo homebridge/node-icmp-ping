@@ -129,3 +129,16 @@ for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-
     }
   });
 }
+
+test('release graph gates publication on native tests with read-only preparation', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish.yml'), 'utf8');
+  assert.match(workflow, /on:\n  release:\n    types: \[published\]/);
+  assert.match(workflow, /build:\n    needs: validate\n    uses: .\/\.github\/workflows\/native.yml/);
+  assert.match(workflow, /needs: \[validate, build\]/);
+  assert.match(workflow, /environment: npm-production/);
+  assert.match(workflow, /group: npm-production-publication\n      cancel-in-progress: false/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 1);
+  assert.doesNotMatch(workflow, /workflow_dispatch|contents: write|actions: write|NODE_AUTH_TOKEN|NPM_TOKEN/);
+  const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
+  assert.doesNotMatch(ci, /id-token: write|contents: write|actions: write|scripts\/publish.js|npm publish/);
+});

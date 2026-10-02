@@ -168,7 +168,6 @@ jobs:
           path: artifacts
       - run: node scripts/assemble.js
       - run: npm test
-      - run: npm run package:check
       - uses: actions/upload-artifact@v7
         with:
           name: npm-distribution

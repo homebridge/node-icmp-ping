@@ -5,8 +5,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
 const { targets, binaries, tarballName } = require('./package-identity.js');
-const { checkManifest, inspectTarball } = require('./check-package.js');
-const { integrity, preflight } = require('./publish.js');
+const { checkManifest, inspectTarball, integrity } = require('./check-package.js');
 
 function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distribution') {
   checkManifest(pkg);
@@ -39,7 +38,6 @@ function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distributi
   const sri = integrity(fs.readFileSync(tarball));
   assert.equal(result.integrity, sri);
   fs.writeFileSync(path.join(outputDirectory, 'integrity.json'), JSON.stringify({ name: pkg.name, version: pkg.version, filename: result.filename, integrity: sri }, null, 2) + '\n');
-  preflight(outputDirectory, require('./release-policy.js').channel(pkg.version, pkg.version.includes('-')));
   console.log(`Validated ${result.filename}: ${result.size} bytes compressed; ${result.unpackedSize} bytes unpacked; ${result.entryCount} files`);
   return result;
 }

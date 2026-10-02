@@ -6,8 +6,8 @@ const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
 require('./check-runtime.js').checkRuntime();
 const { packageFiles } = require('./package-identity.js');
-const channel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
-const item = require('./publish.js').preflight(process.argv[2] || 'distribution', channel);
+const channel = require('./release-check.js').channel(pkg.version, pkg.version.includes('-'));
+const item = require('./check-package.js').preflight(process.argv[2] || 'distribution', channel);
 const tarball = path.resolve(item.tarball);
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'icmp-install-'));
 try {

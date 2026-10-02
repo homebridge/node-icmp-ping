@@ -7,9 +7,9 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const pkg = require('../package.json');
 const { targets, binaries, packageFiles, tarballName } = require('../scripts/package-identity.js');
-const { integrity, preflight } = require('../scripts/publish.js');
+const { integrity, preflight } = require('../scripts/check-package.js');
 const { checkManifest } = require('../scripts/check-package.js');
-const channel = require('../scripts/release-policy.js').channel(pkg.version, pkg.version.includes('-'));
+const channel = require('../scripts/release-check.js').channel(pkg.version, pkg.version.includes('-'));
 
 function fixture(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundled-pack-'));
@@ -37,6 +37,7 @@ test('npm pack contains precisely the API, docs, loader and eight binaries', () 
   assert.deepEqual(result.files.map(f => f.path).sort(), [...packageFiles].sort());
   const item = preflight(distribution, channel);
   assert.equal(item.name, pkg.name);
+  assert.equal(path.isAbsolute(item.tarball), true);
   assert.equal(item.integrity, integrity(fs.readFileSync(item.tarball)));
   assert.equal(item.integrity, result.integrity);
   assert.throws(() => preflight(distribution, channel === 'next' ? 'latest' : 'next'), /Unsafe release channel/);

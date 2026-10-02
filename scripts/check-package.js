@@ -1,9 +1,11 @@
 'use strict';
 const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const assert = require('node:assert/strict');
 const pkg = require('../package.json');
-const { rootName, targets, packageFiles } = require('./package-identity.js');
+const { rootName, targets, packageFiles, tarballName } = require('./package-identity.js');
 
 function checkManifest(metadata) {
   assert.equal(metadata.name, rootName, 'Unexpected package identity');
@@ -46,11 +48,29 @@ function inspectTarball(tarball) {
   return metadata;
 }
 
-module.exports = { checkManifest, checkFiles, inspectTarball };
+function integrity(bytes) {
+  return `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+}
+
+function preflight(directory, channel) {
+  assert.equal(pkg.name, rootName, 'Unexpected root package identity');
+  const expectedChannel = require('./release-check.js').channel(pkg.version, pkg.version.includes('-'));
+  assert.equal(channel, expectedChannel, 'Unsafe release channel');
+  const filename = tarballName(pkg.name, pkg.version);
+  assert.deepEqual(fs.readdirSync(directory).sort(), [filename, 'integrity.json'].sort(), 'Expected one tarball and its retained integrity record');
+  const tarball = path.resolve(directory, filename);
+  const record = JSON.parse(fs.readFileSync(path.join(directory, 'integrity.json'), 'utf8'));
+  const digest = integrity(fs.readFileSync(tarball));
+  assert.deepEqual(record, { name: pkg.name, version: pkg.version, filename, integrity: digest }, 'Retained tarball SHA-512 or identity mismatch');
+  const metadata = inspectTarball(tarball);
+  return { name: metadata.name, version: metadata.version, channel, tarball, integrity: digest, metadata };
+}
+
+module.exports = { checkManifest, checkFiles, inspectTarball, integrity, preflight };
 
 if (require.main === module) {
   const directory = process.argv[2] || 'distribution';
-  const channel = require('./release-policy.js').channel(pkg.version, pkg.version.includes('-'));
-  const item = require('./publish.js').preflight(directory, channel);
+  const channel = require('./release-check.js').channel(pkg.version, pkg.version.includes('-'));
+  const item = preflight(directory, channel);
   console.log(`Validated ${packageFiles.length} files in ${item.tarball}; ${item.integrity}`);
 }
