@@ -99,6 +99,9 @@ test('assembly uses all eight tested artifacts, preserves manifest and refuses t
   fs.renameSync(first, first + '-wrong');
   assert.throws(run, /All eight intended build artifacts/);
   fs.renameSync(first + '-wrong', first);
+  // Windows CI preserves source checkout line endings instead of overwriting the loader.
+  const windowsLoader = path.join(artifacts, 'bindings-x86_64-pc-windows-msvc', 'binding.js');
+  fs.writeFileSync(windowsLoader, fs.readFileSync(windowsLoader, 'utf8').replace(/\n/g, '\r\n'));
   assert.match(run(), /Validated .* bytes compressed/);
   assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 17 files/);
   const loaderPath = path.join(source, 'binding.js');

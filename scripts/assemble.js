@@ -11,12 +11,12 @@ function assemble(artifactDirectory = 'artifacts', outputDirectory = 'distributi
   checkManifest(pkg);
   const directories = Object.keys(targets).map(target => `bindings-${target}`);
   assert.deepEqual(fs.readdirSync(artifactDirectory).sort(), directories.sort(), 'All eight intended build artifacts are required');
-  const loader = fs.readFileSync('binding.js', 'utf8');
+  const loader = fs.readFileSync('binding.js', 'utf8').replace(/\r\n/g, '\n');
   const inputs = Object.entries(targets).map(([target, platform]) => {
     const dir = path.join(artifactDirectory, `bindings-${target}`);
     const filename = `icmp_ping.${platform}.node`;
     assert.deepEqual(fs.readdirSync(dir).sort(), ['binding.js', filename].sort(), `Unexpected files for ${target}`);
-    assert.equal(fs.readFileSync(path.join(dir, 'binding.js'), 'utf8'), loader, `Generated loader differs for ${target}; regenerate and review binding.js`);
+    assert.equal(fs.readFileSync(path.join(dir, 'binding.js'), 'utf8').replace(/\r\n/g, '\n'), loader, `Generated loader differs for ${target}; regenerate and review binding.js`);
     const bytes = fs.readFileSync(path.join(dir, filename));
     assert(bytes.length > 0, `Empty binary for ${target}`);
     return { filename, bytes };
