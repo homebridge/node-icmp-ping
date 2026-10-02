@@ -62,7 +62,6 @@ function sandbox(t) {
   git(directory, 'clone', remote, source);
   git(source, 'config', 'user.name', 'Release test');
   git(source, 'config', 'user.email', 'test@example.invalid');
-  fs.writeFileSync(path.join(source, 'binding.js'), 'original\n');
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(fixture().pkg));
   fs.writeFileSync(path.join(source, 'unrelated'), 'original\n');
   fs.writeFileSync(path.join(source, 'package-lock.json'), JSON.stringify(fixture().lock));

@@ -2,38 +2,44 @@
 
 ## Prepare a version PR
 
-With a supported Node version and Rust stable installed, install the pinned generator
-once with `npm ci`. Then prepare an explicit version:
+With a supported Node version installed, prepare an explicit version:
 
 ```sh
 npm run prepare-version -- 1.0.1
 git diff
 ```
 
-The command updates `package.json`, both root version entries in `package-lock.json`,
-`Cargo.toml`, and only the root package in `Cargo.lock`, then regenerates `binding.js`
-through the same build used by CI: pinned `@napi-rs/cli`, Rust stable, and locked
-Cargo dependencies. It also produces an ignored native binary for the local host.
-Never hand-edit `binding.js`.
+The command updates only `package.json`, both root version entries in
+`package-lock.json`, `Cargo.toml`, and the root package in `Cargo.lock`.
+It requires neither installed npm dependencies nor Rust and does not generate
+build outputs. Stable versions and prereleases such as `1.1.0-beta.1` are accepted.
+Use the exact version without a `v` prefix; ranges, bump keywords, and build
+metadata (`+...`) are rejected to match the release policy. Invalid arguments
+change nothing.
 
-Stable versions and prereleases such as `1.1.0-beta.1` are accepted. Use the exact
-version, without a `v` prefix; ranges, bump keywords, and build metadata (`+...`)
-are rejected to match the release policy. Invalid arguments change nothing. If the
-build fails, version files remain edited: fix the reported error and rerun the same
-command before committing. There is no automatic rollback.
+Review the diff, commit the four version files, push your branch, and open a PR.
+The command leaves changes unstaged and uncommitted; it never pushes, tags,
+creates releases, or publishes. The name `prepare-version` avoids npm's reserved
+`version` lifecycle hook: do not use `npm version`, which has its own commit/tag
+behavior, for this process. Merge the reviewed version PR only after CI passes.
 
-Review the diff, then commit the four version files and generated `binding.js`,
-push your branch, and open a PR. The command leaves changes unstaged and uncommitted;
-it never pushes, tags, creates releases, or publishes. The name `prepare-version`
-avoids npm's reserved `version` lifecycle hook: do not use `npm version`, which has
-its own commit/tag behavior, for this process.
+## Generated build artifacts
 
-CI runs `npm run build:check`: it validates version files, generates into a temporary
-directory, and compares the generated loader with the committed file (normalizing
-Windows checkout CRLF). A mismatch fails with a diff and regeneration instructions.
-It also checks the native API exports. Generated declarations are temporary; the
-reviewed public API remains `index.d.ts`. CI never rewrites tracked source, commits,
-pushes, or redispatches itself. Merge the reviewed version PR only after CI passes.
+For local development, install dependencies with `npm ci`, then run
+`npm run build` before `npm test`, `npm run test:release`, or runtime use.
+Building requires Rust stable and the platform linker/SDK. Every build validates
+the authoritative versions and uses pinned `@napi-rs/cli` and locked Cargo
+dependencies to generate `binding.js` together with the host native binary.
+Rebuild after source or version changes. There are no stale-file checks or
+version-triggered generation rules. `binding.js` and native binaries are ignored
+build/package artifacts: never edit or commit them. Generated declarations are
+temporary; the reviewed public API remains `index.d.ts`.
+
+CI uses the same `npm run build -- --target <target>` path on each native host.
+Dependency installation, version preparation, and retained-tarball inspection
+work without a source-checkout loader. Tests and application imports naturally
+require a build first. Plain `npm pack` does not build native artifacts: use the
+assembly command below for a complete package, which requires all eight targets.
 
 ## Publish the intended release
 
@@ -56,9 +62,13 @@ and Windows x64/arm64. Musl builds and tests run in native Alpine containers on
 matching hosts. Builds exercise the native API, real ICMP, resource behavior, and
 supported Node versions; Linux loss tests use isolated network namespaces.
 
-Assembly requires all eight binaries and identical generated loaders. It packs
-once, checks the manifest and exact file inventory, and compares packed binary
-bytes with the tested build inputs. It retains `npm-distribution` containing only:
+Assembly requires all eight native build artifacts from the same commit/run.
+Each contains its binary and freshly generated loader. napi-rs generates a
+platform-independent loader from the package name/version and native exports;
+assembly always copies the loader from `bindings-x86_64-unknown-linux-gnu` along
+with all eight binaries. This fixed choice does not depend on download order or
+any existing local loader. It packs once, checks the manifest and exact file
+inventory, and compares packed loader and binary bytes with the tested inputs. It retains `npm-distribution` containing only:
 
 - `homebridge-node-icmp-ping-<version>.tgz`
 - `integrity.json` with name, version, filename and the complete tarball's SHA-512

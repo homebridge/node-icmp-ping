@@ -1,6 +1,6 @@
 # Platform coverage
 
-The single npm package `@homebridge/node-icmp-ping` from [Homebridge](https://github.com/homebridge/node-icmp-ping) bundles all eight native binaries. The unchanged napi-rs generated loader selects the adjacent binary by platform, architecture, and libc; see [package contents](releasing.md#package-contents-and-assembly). There are no separate native npm dependencies.
+The single npm package `@homebridge/node-icmp-ping` from [Homebridge](https://github.com/homebridge/node-icmp-ping) bundles all eight native binaries. The automatically generated napi-rs loader selects the adjacent binary by platform, architecture, and libc; see [package contents](releasing.md#package-contents-and-assembly). There are no separate native npm dependencies.
 
 Raw ICMP is the only v1 backend. Administrator privileges on Windows are accepted as a v1 limitation; Windows IP Helper Echo APIs are not used. A future backend could be added behind the engine boundary without changing `ping(ip)`.
 
@@ -30,3 +30,5 @@ Both musl jobs use real matching-architecture Linux runners with Docker; no QEMU
 The Alpine final-package tests inspect the running process's libc mapping and Node report, assert architecture and Node major, confirm the loaded `.node` path is musl, and require successful raw IPv4 and IPv6 loopback Echo. Containers run as root with `NET_RAW`; there is no fallback for missing permissions or IPv6. ARM64 runner or official image availability can block CI, but never redirects testing through emulation. Node's Docker project describes musl runtime support separately from its glibc support; this package's support is bounded by the tested Alpine/Node matrix.
 
 References: [GitHub hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners), [official Node image architectures](https://github.com/nodejs/docker-node/blob/main/versions.json), [Node musl support](https://github.com/nodejs/docker-node#musl-builds-for-alpine), [official Rust Alpine image](https://github.com/rust-lang/docker-rust/blob/master/stable/alpine3.23/Dockerfile), and [napi-rs musl linkage](https://napi.rs/docs/more/faq).
+
+`binding.js` is generated on every native build and packaged with the binaries. Never edit or commit this ignored build artifact.

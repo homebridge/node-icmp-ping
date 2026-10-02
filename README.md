@@ -80,7 +80,7 @@ Bounded work runs through napi-rs AsyncTask on Node-API's shared worker pool. La
 ## Development
 
 ```sh
-npm install
+npm ci
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
@@ -89,10 +89,12 @@ npm test
 npm run test:release
 ```
 
+`npm run build` always generates ignored `binding.js` and the native binary for the local host using the pinned napi-rs generator and locked Cargo dependencies. Run it before tests or runtime use, and again after source or version changes. `binding.js` is a build/package artifact: never edit or commit it. The public declarations remain in `index.d.ts`. Dependency installation and version preparation do not require generated outputs.
+
 `npm run package:check` validates the retained all-platform tarball after CI assembly; a local single-target build is not a release distribution.
 
 `npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
-To prepare a version PR after installing dependencies, run `npm run prepare-version -- 1.0.1`, inspect `git diff`, then commit and push the version files and regenerated `binding.js`. Never hand-edit the loader. CI verifies consistency; after the PR is merged, create the GitHub Release as described in the [release process](docs/releasing.md).
+To prepare a version PR, run `npm run prepare-version -- 1.0.1`, inspect `git diff`, then commit and push the four version files. This command needs only Node and does not build anything. CI validates the versions and generates the build artifacts; after the PR is merged, create the GitHub Release as described in the [release process](docs/releasing.md).
 
-Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the version-PR preparation, generated-loader verification, retained-tarball testing, and publication failure handling.
+Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the version-PR preparation, automatic loader generation, retained-tarball testing, and publication failure handling.

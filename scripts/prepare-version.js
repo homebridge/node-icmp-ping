@@ -2,7 +2,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
 const { channel, cargoVersion, validateVersions } = require('./release-check.js');
 
 function versionArgument(args) {
@@ -41,12 +40,6 @@ function prepare(args = process.argv.slice(2)) {
     'Cargo.toml': updatedCargo,
     'Cargo.lock': updatedLock,
   })) fs.writeFileSync(path.join(root, file), content);
-  try {
-    // Fresh process reads the updated manifests; reuse CI's pinned, locked build.
-    execFileSync(process.execPath, [path.join(root, 'scripts/check-generated.js'), '--write'], { cwd: root, stdio: 'inherit' });
-  } catch (error) {
-    throw new Error('Loader generation failed. Version files remain edited; fix the build error and rerun the same command before committing. Do not hand-edit binding.js.', { cause: error });
-  }
   console.log(`Prepared ${version}. Review git diff, then commit and push a PR. Nothing was staged or committed.`);
 }
 
