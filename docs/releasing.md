@@ -2,11 +2,31 @@
 
 ## Prepare a version PR
 
-Update `package.json`, `package-lock.json`, `Cargo.toml`, and the root package in
-`Cargo.lock` together. Run `npm ci` and `npm run build` with Rust installed, review
-and commit the regenerated `binding.js` alongside the version files. The npm CLI
-generator is pinned; Cargo dependencies are locked. No hand edits to the loader
-are needed.
+With a supported Node version and Rust stable installed, install the pinned generator
+once with `npm ci`. Then prepare an explicit version:
+
+```sh
+npm run prepare-version -- 1.0.1
+git diff
+```
+
+The command updates `package.json`, both root version entries in `package-lock.json`,
+`Cargo.toml`, and only the root package in `Cargo.lock`, then regenerates `binding.js`
+through the same build used by CI: pinned `@napi-rs/cli`, Rust stable, and locked
+Cargo dependencies. It also produces an ignored native binary for the local host.
+Never hand-edit `binding.js`.
+
+Stable versions and prereleases such as `1.1.0-beta.1` are accepted. Use the exact
+version, without a `v` prefix; ranges, bump keywords, and build metadata (`+...`)
+are rejected to match the release policy. Invalid arguments change nothing. If the
+build fails, version files remain edited: fix the reported error and rerun the same
+command before committing. There is no automatic rollback.
+
+Review the diff, then commit the four version files and generated `binding.js`,
+push your branch, and open a PR. The command leaves changes unstaged and uncommitted;
+it never pushes, tags, creates releases, or publishes. The name `prepare-version`
+avoids npm's reserved `version` lifecycle hook: do not use `npm version`, which has
+its own commit/tag behavior, for this process.
 
 CI runs `npm run build:check`: it validates version files, generates into a temporary
 directory, and compares the generated loader with the committed file (normalizing

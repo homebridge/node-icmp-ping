@@ -53,12 +53,13 @@
   },
   "scripts": {
     "build": "node scripts/check-generated.js --write",
-    "test:release": "node --test test/release.test.js test/publish.test.js test/packaging.test.js test/loader.test.js test/generated.test.js",
+    "test:release": "node --test test/release.test.js test/publish.test.js test/packaging.test.js test/loader.test.js test/generated.test.js test/prepare-version.test.js",
     "test": "node --test test/api.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:resources": "node --test test/resources.test.js",
     "package:check": "node scripts/check-package.js",
-    "build:check": "node scripts/check-generated.js"
+    "build:check": "node scripts/check-generated.js",
+    "prepare-version": "node scripts/prepare-version.js"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.10.5"
