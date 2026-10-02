@@ -6,7 +6,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { validate } = require('../scripts/release-check.js');
-const { digest } = require('../scripts/release-loader.js');
 const root = path.resolve(__dirname, '..');
 function fixture(version = '0.9.0-beta.2', prerelease = true) {
   const release = { id: 123, tag_name: `v${version}`, draft: false, prerelease };
@@ -53,7 +52,7 @@ test('actual repository versions agree', () => {
 });
 
 function sandbox(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-loader-test-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-check-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const remote = path.join(directory, 'remote.git');
   const source = path.join(directory, 'source');
@@ -63,7 +62,6 @@ function sandbox(t) {
   git(directory, 'clone', remote, source);
   git(source, 'config', 'user.name', 'Release test');
   git(source, 'config', 'user.email', 'test@example.invalid');
-  fs.writeFileSync(path.join(source, 'binding.js'), 'original\n');
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(fixture().pkg));
   fs.writeFileSync(path.join(source, 'unrelated'), 'original\n');
   fs.writeFileSync(path.join(source, 'package-lock.json'), JSON.stringify(fixture().lock));
@@ -82,95 +80,17 @@ function sandbox(t) {
     const cp = require('node:child_process');
     const fs = require('node:fs');
     const real = cp.execFileSync;
-    let fetches = 0;
     cp.execFileSync = (file, args, options) => {
       if (file === 'gh') return JSON.stringify(JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH)).release);
-      if (file === 'git' && args[0] === 'fetch') {
-        fetches++;
-        if (process.env.TEST_TRANSPORT === 'initial-fetch-failure' ||
-            (fetches === 2 && process.env.TEST_TRANSPORT === 'confirm-failure')) throw new Error('simulated fetch failure');
-      }
-      if (file === 'git' && args[0] === 'push') {
-        if (process.env.TEST_TRANSPORT === 'race') {
-          const opts = { cwd: process.env.TEST_SOURCE, stdio: 'pipe' };
-          fs.writeFileSync(process.env.TEST_SOURCE + '/unrelated', 'concurrent main update');
-          real('git', ['commit', '-am', 'concurrent advancement'], opts);
-          real('git', ['push', 'origin', 'main'], opts);
-        }
-        const result = real(file, args, options);
-        if (process.env.TEST_TRANSPORT === 'lost-response') throw new Error('simulated lost push response');
-        return result;
-      }
       return real(file, args, options);
     };
   `);
   const env = { ...process.env, NODE_OPTIONS: `--require=${JSON.stringify(intercept)}`, TEST_SOURCE: source, GITHUB_EVENT_PATH: event, GITHUB_EVENT_NAME: 'release', GITHUB_SHA: sha,
-    GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', LOADER_SHA256: digest(Buffer.from('generated\n')),
+    GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1',
     GITHUB_REPOSITORY: 'homebridge/node-icmp-ping', GITHUB_REF: fixture().ref,
     GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output };
-  fs.mkdirSync(path.join(checkout, 'regenerated-loader'));
-  fs.writeFileSync(path.join(checkout, 'regenerated-loader/binding.js'), 'generated\n');
   const run = script => spawnSync(process.execPath, [path.join(root, 'scripts', script)], { cwd: checkout, env, encoding: 'utf8' });
   return { git, remote, source, checkout, sha, summary, output, env, run };
-}
-test('byte-identical loader passes; any byte change gates publication', t => {
-  const s = sandbox(t);
-  assert.equal(s.run('release-loader.js').status, 0);
-  assert.match(fs.readFileSync(s.output, 'utf8'), /changed=false/);
-  fs.writeFileSync(s.output, '');
-  fs.writeFileSync(path.join(s.checkout, 'binding.js'), 'original\r\n');
-  assert.equal(s.run('release-loader.js').status, 0);
-  assert.match(fs.readFileSync(s.output, 'utf8'), /changed=true/);
-  assert.match(fs.readFileSync(s.summary, 'utf8'), /Nothing was published/);
-});
-test('generation may not silently change a lockfile or unrelated source', t => {
-  const s = sandbox(t);
-  fs.writeFileSync(path.join(s.checkout, 'unrelated'), 'changed by build');
-  assert.equal(s.run('release-loader.js').status, 1);
-  assert.equal(fs.existsSync(s.output), false);
-});
-for (const mode of ['direct', 'protected', 'advanced', 'bad-digest', 'dirty', 'staged', 'race', 'lost-response', 'confirm-failure', 'initial-fetch-failure']) {
-  test(`loader repair ${mode}: never succeeds as a release`, t => {
-    const s = sandbox(t);
-    s.env.TEST_TRANSPORT = mode;
-    if (mode === 'protected') {
-      fs.writeFileSync(path.join(s.remote, 'hooks/pre-receive'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-    }
-    let expectedMain = s.sha;
-    if (mode === 'advanced') {
-      fs.writeFileSync(path.join(s.source, 'unrelated'), 'advanced\n');
-      s.git(s.source, 'commit', '-am', 'advance main'); s.git(s.source, 'push', 'origin', 'main');
-      expectedMain = s.git(s.source, 'rev-parse', 'HEAD');
-    }
-    if (mode === 'bad-digest') s.env.LOADER_SHA256 = '0'.repeat(64);
-    if (mode === 'dirty') fs.writeFileSync(path.join(s.checkout, 'unrelated'), 'dirty\n');
-    if (mode === 'staged') {
-      fs.writeFileSync(path.join(s.checkout, 'unrelated'), 'staged\n');
-      s.git(s.checkout, 'add', 'unrelated');
-    }
-    const result = s.run('repair-release-loader.js');
-    if (mode === 'race') expectedMain = s.git(s.source, 'rev-parse', 'HEAD');
-    assert.equal(result.status, 1, result.stderr);
-    const message = fs.readFileSync(s.summary, 'utf8');
-    assert.match(message, /Nothing was published to npm/);
-    if (['direct', 'lost-response', 'confirm-failure'].includes(mode)) {
-      assert.match(message, mode === 'confirm-failure' ? /confirming fetch failed/ : /confirmed on main/);
-      assert.equal(s.git(s.remote, 'show', 'main:binding.js'), 'generated');
-      assert.equal(s.git(s.remote, 'diff', '--name-only', s.sha, 'main'), 'binding.js');
-      assert.equal(s.git(s.remote, 'rev-parse', 'main^'), s.sha);
-    } else {
-      assert.equal(s.git(s.remote, 'rev-parse', 'main'), expectedMain);
-      assert.match(message, /repair could not be confirmed/);
-    }
-    if (!['direct', 'lost-response'].includes(mode)) {
-      assert.match(message, /current main/);
-      assert.match(message, /npm ci.*npm run build/);
-      assert.match(message, /no push was attempted|not confirmed on main|fetch failed|digest mismatch|checkout must be clean|fetch failure/);
-    }
-    assert.equal(fs.readFileSync(path.join(s.checkout, 'regenerated-loader/binding.js'), 'utf8'), 'generated\n');
-    assert.equal(s.git(s.remote, 'for-each-ref', '--format=%(refname)', 'refs/heads'), 'refs/heads/main');
-    assert.equal(s.git(s.remote, 'tag', '--list'), '');
-  });
 }
 for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-tag']) {
   test(`full release check with local remote: ${mode}`, t => {
@@ -208,40 +128,16 @@ for (const mode of ['remote-tag', 'ancestor', 'off-main', 'missing-tag', 'moved-
     }
   });
 }
-// Guard the job graph as well as the scripts: repair success must never unlock build.
-test('release validation still rejects version-only drift until the generated loader is committed', t => {
-  const s = sandbox(t);
-  const tracked = fs.readFileSync(path.join(root, 'binding.js'), 'utf8');
-  const version = tracked.match(/bindingPackageVersion !== '([^']+)'/)[1];
-  const next = version === '1.0.0' ? '2.0.0' : '1.0.0';
-  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked);
-  fs.writeFileSync(path.join(s.checkout, 'package.json'), JSON.stringify(fixture(next, false).pkg));
-  s.git(s.checkout, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-am', 'version bump');
-  fs.writeFileSync(path.join(s.checkout, 'binding.js'), tracked.split(version).join(next));
-  assert.equal(s.run('release-loader.js').status, 0);
-  assert.match(fs.readFileSync(s.output, 'utf8'), /changed=true/);
-});
-test('workflow preserves the normal release path and isolates pinned recovery', () => {
+
+test('release graph gates publication on native tests with read-only preparation', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish.yml'), 'utf8');
   assert.match(workflow, /on:\n  release:\n    types: \[published\]/);
-  assert.doesNotMatch(workflow, /inputs\.publish|NODE_AUTH_TOKEN|NPM_TOKEN/);
-  assert.match(workflow, /build:\n    needs: validate\n    if: needs.validate.outputs.loader_changed == 'false'/);
-  assert.match(workflow, /publish:\n    if: .*needs.validate.outputs.loader_changed == 'false'\n    needs: \[validate, build\]/);
-  assert.equal((workflow.match(/contents: write/g) || []).length, 1);
-  const repair = workflow.split('  repair-loader:')[1].split('  build:')[0];
-  assert.match(repair, /contents: write/);
-  assert.doesNotMatch(repair, /npm (ci|install|publish)|id-token: write/);
+  assert.match(workflow, /build:\n    needs: validate\n    uses: .\/\.github\/workflows\/native.yml/);
+  assert.match(workflow, /needs: \[validate, build\]/);
   assert.match(workflow, /environment: npm-production/);
-  assert.equal((workflow.match(/id-token: write/g) || []).length, 2);
-  const recovery = workflow.split('  recover-v1:')[1];
-  assert.match(recovery, /github.event_name == 'workflow_dispatch' && github.ref == 'refs\/heads\/main' && inputs.confirmation == 'recover-v1.0.0'/);
-  assert.match(recovery, /environment: npm-production/);
-  assert.match(recovery, /group: npm-production-publication\n      cancel-in-progress: false/);
-  assert.match(recovery, /actions: read/);
-  assert.match(recovery, /node scripts\/recover-v1.js/);
-  assert.doesNotMatch(recovery, /needs:|npm (ci|pack|run build)|assemble.js|native.yml|download-artifact/);
+  assert.match(workflow, /group: npm-production-publication\n      cancel-in-progress: false/);
+  assert.equal((workflow.match(/id-token: write/g) || []).length, 1);
+  assert.doesNotMatch(workflow, /workflow_dispatch|contents: write|actions: write|NODE_AUTH_TOKEN|NPM_TOKEN/);
   const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
-  assert.doesNotMatch(ci, /id-token: write|scripts\/publish.js|npm publish/);
+  assert.doesNotMatch(ci, /id-token: write|contents: write|actions: write|scripts\/publish.js|npm publish/);
 });
-
-require('./recovery.test.js');

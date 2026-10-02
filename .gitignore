@@ -7,3 +7,4 @@
 /*.tgz
 .npmrc
 .DS_Store
+/binding.js

@@ -26,7 +26,7 @@ test('native addon rejects direct non-string arguments', async () => {
   assert.throws(() => native.ping(42));
 });
 test('release channels cannot promote prereleases to latest', () => {
-  const { channel } = require('../scripts/release-policy.js');
+  const { channel } = require('../scripts/release-check.js');
   assert.equal(channel('1.0.0', false), 'latest');
   assert.equal(channel('1.0.0-beta.1', true), 'next');
   assert.equal(channel('0.9.0-beta.1', true), 'next');

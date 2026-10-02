@@ -41,8 +41,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked
-      - run: npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target ${{ matrix.target }} -- --locked
-      - run: node scripts/check-generated.js
+      - run: npm run build -- --target ${{ matrix.target }}
       - run: npm test
       - name: Raw ICMP and resource tests (Unix)
         if: runner.os != 'Windows'
@@ -124,8 +123,7 @@ jobs:
               cargo fmt --check
               cargo clippy --locked --all-targets --all-features -- -D warnings
               cargo test --locked
-              npm exec napi -- build --platform --release --js binding.js --dts native.d.ts --target "$TARGET" -- --locked
-              node scripts/check-generated.js
+              npm run build -- --target "$TARGET"
               npm test
               node --test test/integration.test.js test/resources.test.js
             '
@@ -163,14 +161,13 @@ jobs:
           node-version: 24.x
           cache: npm
       - run: npm ci
-      - run: npm run test:release
       - uses: actions/download-artifact@v8
         with:
           pattern: bindings-*
           path: artifacts
       - run: node scripts/assemble.js
+      - run: npm run test:release
       - run: npm test
-      - run: npm run package:check
       - uses: actions/upload-artifact@v7
         with:
           name: npm-distribution

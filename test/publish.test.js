@@ -3,10 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { integrity, lookup, publish } = require('../scripts/publish.js');
+const { lookup, publish } = require('../scripts/publish.js');
+const { integrity } = require('../scripts/check-package.js');
 const { version } = require('../package.json');
 const { rootName } = require('../scripts/package-identity.js');
-const { channel } = require('../scripts/release-policy.js');
+const { channel } = require('../scripts/release-check.js');
 const releaseChannel = channel(version, version.includes('-'));
 const item = { name: rootName, version, channel: releaseChannel, integrity: integrity(Buffer.from('artifact')) };
 const items = [item];
@@ -17,6 +18,7 @@ function harness(count = 0) {
   const reads = [];
   return { registry, writes, reads, options: {
     log() {},
+    async delay() {},
     async read(item) { reads.push(item.name); return registry.get(item.name) || null; },
     async write(item) { writes.push(item.name); registry.set(item.name, state(item)); },
   } };
@@ -136,13 +138,13 @@ for (const [releaseVersion, prerelease, expected] of [
   assert.throws(() => channel(releaseVersion, !prerelease), /prerelease flag mismatches/);
 });
 
-test('default npm writer receives an absolute tarball path from relative preflight', async t => {
+test('default npm writer publishes the absolute retained tarball with provenance', async t => {
   const os = require('node:os');
   const { spawnSync } = require('node:child_process');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-argument-'));
   t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
   // A child isolates the transport stub before publish.js captures execFileSync.
-  // Only tar metadata inspection is stubbed; real preflight reads/checks retained bytes.
+  // Registry and npm transport are stubbed; the writer checks real retained bytes.
   const script = `
     const assert = require('node:assert/strict');
     const fs = require('node:fs');
@@ -158,12 +160,13 @@ test('default npm writer receives an absolute tarball path from relative preflig
       assert.equal(options.stdio, 'inherit');
       called = true;
     };
-    require(${JSON.stringify(require.resolve('../scripts/check-package.js'))}).inspectTarball = () => pkg;
-    const { integrity, preflight, publish } = require(${JSON.stringify(require.resolve('../scripts/publish.js'))});
+
+    const { publish } = require(${JSON.stringify(require.resolve('../scripts/publish.js'))});
+    const { integrity } = require(${JSON.stringify(require.resolve('../scripts/check-package.js'))});
     fs.mkdirSync('distribution');
     fs.writeFileSync(path.join('distribution', filename), 'retained test bytes');
     fs.writeFileSync('distribution/integrity.json', JSON.stringify({name: pkg.name, version: pkg.version, filename, integrity: integrity(Buffer.from('retained test bytes'))}));
-    const item = preflight('distribution', ${JSON.stringify(releaseChannel)});
+    const item = {name: pkg.name, version: pkg.version, channel: ${JSON.stringify(releaseChannel)}, tarball: path.resolve('distribution', filename), integrity: integrity(Buffer.from('retained test bytes'))};
     let reads = 0;
     publish(item, { log() {}, read: async () => ++reads === 1 ? null : ({metadata: { name: item.name, version: item.version, dist: {integrity: item.integrity}}, tags: {[item.channel]: item.version}}) })
       .then(() => assert(called, 'default writer must execute'))
@@ -171,4 +174,63 @@ test('default npm writer receives an absolute tarball path from relative preflig
   `;
   const result = spawnSync(process.execPath, ['-e', script], { cwd: temporary, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
+});
+
+for (const clientFails of [false, true]) test(`delayed registry visibility succeeds with one publish (client failure: ${clientFails})`, async () => {
+  const events = [];
+  let reads = 0;
+  await publish(item, {
+    log() {},
+    read: async received => {
+      assert.equal(received, item);
+      events.push('read');
+      return ++reads < 4 ? null : state(item);
+    },
+    write: async () => {
+      events.push('publish');
+      if (clientFails) throw new Error('lost response');
+    },
+    delay: async milliseconds => { events.push(milliseconds); },
+  });
+  assert.deepEqual(events, ['read', 'publish', 'read', 2000, 'read', 4000, 'read']);
+});
+
+test('absent read-back exhausts bounded backoff without repeating publish', async () => {
+  const h = harness();
+  const delays = [];
+  h.options.write = async item => { h.writes.push(item.name); };
+  h.options.delay = async milliseconds => { delays.push(milliseconds); };
+  await assert.rejects(publish(item, h.options), /Registry read-back did not establish/);
+  assert.deepEqual(delays, [2000, 4000, 8000, 16000]);
+  assert.equal(h.reads.length, 6); // One preflight plus five post-mutation reads.
+  assert.deepEqual(h.writes, [item.name]);
+});
+
+for (const [label, corrupt, expected] of [
+  ['name', s => { s.metadata.name = 'wrong'; }, /name mismatch/],
+  ['version', s => { s.metadata.version = '0.0.0'; }, /version mismatch/],
+  ['integrity', s => { s.metadata.dist.integrity = integrity(Buffer.from('wrong')); }, /integrity mismatch/],
+  ['malformed integrity', s => { s.metadata.dist.integrity = 'sha512-bad'; }, /unsupported registry integrity/],
+  ['tag', s => { s.tags[item.channel] = '0.0.0'; }, /Dist-tag drift/],
+  ['network', null, /network/],
+]) test(`post-publish ${label} failure after absence stops immediately`, async () => {
+  let reads = 0;
+  let writes = 0;
+  const delays = [];
+  await assert.rejects(publish(item, {
+    log() {},
+    read: async () => {
+      if (++reads <= 2) return null;
+      if (reads > 3) return state(item); // Must never accept this later state.
+      if (!corrupt) throw new Error('network');
+      const invalid = state(item);
+      corrupt(invalid);
+      return invalid;
+    },
+    write: async () => { writes++; },
+    delay: async milliseconds => { delays.push(milliseconds); },
+  }), expected);
+  assert.equal(reads, 3);
+  assert.equal(writes, 1);
+  assert.deepEqual(delays, [2000]);
 });
