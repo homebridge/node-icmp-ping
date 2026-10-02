@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       channel: ${{ steps.release.outputs.channel }}
-      loader_changed: ${{ steps.loader.outputs.changed }}
-      loader_sha256: ${{ steps.loader.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,51 +23,11 @@ jobs:
         run: node scripts/release-check.js
         env:
           GH_TOKEN: ${{ github.token }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      - name: Regenerate loader with the locked CLI and canonical build
-        run: npm run build
-      - id: loader
-        run: node scripts/release-loader.js
-      - uses: actions/upload-artifact@v7
-        if: steps.loader.outputs.changed == 'true'
-        with:
-          name: regenerated-loader
-          path: binding.js
-          if-no-files-found: error
-  repair-loader:
-    needs: validate
-    if: needs.validate.outputs.loader_changed == 'true'
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: release-loader-repair
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-      - uses: actions/download-artifact@v8
-        with:
-          name: regenerated-loader
-          path: regenerated-loader
-      # Never execute the generated loader or install dependencies with write permission.
-      - name: Commit only the regenerated loader and stop this release
-        env:
-          LOADER_SHA256: ${{ needs.validate.outputs.loader_sha256 }}
-        run: node scripts/repair-release-loader.js
   build:
     needs: validate
-    if: needs.validate.outputs.loader_changed == 'false'
     uses: ./.github/workflows/native.yml
   publish:
-    if: github.event_name == 'release' && github.event.action == 'published' && needs.validate.outputs.loader_changed == 'false'
+    if: github.event_name == 'release' && github.event.action == 'published'
     needs: [validate, build]
     runs-on: ubuntu-24.04
     concurrency:

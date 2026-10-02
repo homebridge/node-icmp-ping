@@ -93,4 +93,4 @@ npm run test:release
 
 `npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
-Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the one-click GitHub Release process, automated loader verification, prebuilt assembly, and publication recovery.
+Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the version-PR preparation, generated-loader verification, retained-tarball testing, and publication failure handling.

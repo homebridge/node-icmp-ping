@@ -15,6 +15,14 @@ function cargoVersion(text, lock = false) {
   assert(match, 'Missing root Cargo version');
   return match[1];
 }
+function validateVersions({ pkg, lock, cargo, cargoLock }) {
+  assert.equal(lock.name, pkg.name, 'npm lockfile name mismatch');
+  assert.equal(lock.version, pkg.version, 'npm lockfile version mismatch');
+  assert.equal(lock.packages?.['']?.version, pkg.version, 'npm lockfile root version mismatch');
+  assert.equal(lock.packages?.['']?.name, pkg.name, 'npm lockfile root name mismatch');
+  assert.equal(cargoVersion(cargo), pkg.version, 'Cargo version mismatch');
+  assert.equal(cargoVersion(cargoLock, true), pkg.version, 'Cargo lockfile version mismatch');
+}
 function validate({ event, eventName, ref, sha, head, tagSha, pkg, lock, cargo, cargoLock, live }) {
   assert.equal(eventName, 'release', 'Only GitHub Release events can publish');
   assert.equal(event.action, 'published', 'Only published Releases can publish');
@@ -27,12 +35,7 @@ function validate({ event, eventName, ref, sha, head, tagSha, pkg, lock, cargo, 
   assert.match(sha, /^[a-f0-9]{40}$/, 'Invalid release commit');
   assert.equal(head, sha, 'Checkout does not match event commit');
   assert.equal(tagSha, sha, 'Tag does not point to workflow commit');
-  assert.equal(lock.name, pkg.name, 'npm lockfile name mismatch');
-  assert.equal(lock.version, pkg.version, 'npm lockfile version mismatch');
-  assert.equal(lock.packages?.['']?.version, pkg.version, 'npm lockfile root version mismatch');
-  assert.equal(lock.packages?.['']?.name, pkg.name, 'npm lockfile root name mismatch');
-  assert.equal(cargoVersion(cargo), pkg.version, 'Cargo version mismatch');
-  assert.equal(cargoVersion(cargoLock, true), pkg.version, 'Cargo lockfile version mismatch');
+  validateVersions({ pkg, lock, cargo, cargoLock });
   for (const field of ['id', 'tag_name', 'draft', 'prerelease']) {
     assert.equal(live[field], release[field], `Live Release ${field} changed; stop and investigate`);
   }
@@ -62,4 +65,4 @@ function check(env = process.env) {
   return result;
 }
 if (require.main === module) check();
-module.exports = { validate, cargoVersion, check };
+module.exports = { validate, validateVersions, cargoVersion, check };
