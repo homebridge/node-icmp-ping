@@ -5,30 +5,10 @@ on:
 permissions:
   contents: read
 jobs:
-  validate:
-    if: github.repository == 'homebridge/node-icmp-ping' && github.event_name == 'release' && github.event.action == 'published'
-    runs-on: ubuntu-24.04
-    outputs:
-      channel: ${{ steps.release.outputs.channel }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-      - id: release
-        run: node scripts/release-check.js
-        env:
-          GH_TOKEN: ${{ github.token }}
   build:
-    needs: validate
     uses: ./.github/workflows/native.yml
   publish:
-    if: github.event_name == 'release' && github.event.action == 'published'
-    needs: [validate, build]
+    needs: build
     runs-on: ubuntu-24.04
     concurrency:
       group: npm-production-publication
@@ -38,25 +18,18 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.x
+          node-version: 26.x
           registry-url: https://registry.npmjs.org
-      - name: Recheck release identity and metadata before publication
-        run: node scripts/release-check.js
-        env:
-          GH_TOKEN: ${{ github.token }}
       - run: npm install --global npm@11.19.1
       - uses: actions/download-artifact@v8
         with:
           name: npm-distribution
           path: distribution
-      - name: Verify retained bundled tarball and publish one package
-        env:
-          CHANNEL: ${{ needs.validate.outputs.channel }}
-        run: node scripts/publish.js
+      - name: Publish stable
+        if: "!github.event.release.prerelease"
+        run: npm publish "$GITHUB_WORKSPACE"/distribution/*.tgz --access public --provenance --tag latest
+      - name: Publish prerelease
+        if: "github.event.release.prerelease"
+        run: npm publish "$GITHUB_WORKSPACE"/distribution/*.tgz --access public --provenance --tag beta

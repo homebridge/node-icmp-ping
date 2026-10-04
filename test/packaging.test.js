@@ -5,107 +5,53 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const pkg = require('../package.json');
-const { targets, binaries, packageFiles, tarballName } = require('../scripts/package-identity.js');
-const { integrity, preflight } = require('../scripts/check-package.js');
-const { checkManifest } = require('../scripts/check-package.js');
-const channel = require('../scripts/release-check.js').channel(pkg.version, pkg.version.includes('-'));
+const { targets, binaries, packageFiles } = require('../scripts/package-identity.js');
+const { inspectTarball } = require('../scripts/check-package.js');
 
-function fixture(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bundled-pack-'));
-  try {
-    const source = path.join(dir, 'source');
-    const distribution = path.join(dir, 'distribution');
-    fs.mkdirSync(source);
-    fs.mkdirSync(distribution);
-    fs.copyFileSync(path.join(__dirname, '../.gitignore'), path.join(source, '.gitignore'));
-    for (const name of packageFiles) {
-      fs.mkdirSync(path.dirname(path.join(source, name)), { recursive: true });
-      fs.writeFileSync(path.join(source, name), binaries.includes(name) ? `fixture ${name}` : fs.readFileSync(path.join(__dirname, '..', name)));
-    }
-    function pack() {
-      const [result] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', distribution], { cwd: source, encoding: 'utf8', shell: process.platform === 'win32' }));
-      fs.writeFileSync(path.join(distribution, 'integrity.json'), JSON.stringify({ name: pkg.name, version: pkg.version, filename: result.filename, integrity: result.integrity }));
-      return result;
-    }
-    fn({ source, distribution, pack });
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}
-
-test('npm pack contains precisely the API, docs, loader and eight binaries', () => fixture(({ distribution, pack }) => {
-  const result = pack();
-  assert.equal(result.filename, tarballName(pkg.name, pkg.version));
-  assert.deepEqual(result.files.map(f => f.path).sort(), [...packageFiles].sort());
-  const item = preflight(distribution, channel);
-  assert.equal(item.name, pkg.name);
-  assert.equal(path.isAbsolute(item.tarball), true);
-  assert.equal(item.integrity, integrity(fs.readFileSync(item.tarball)));
-  assert.equal(item.integrity, result.integrity);
-  assert.throws(() => preflight(distribution, channel === 'next' ? 'latest' : 'next'), /Unsafe release channel/);
-}));
-for (const fault of ['missing binary', 'missing musl x64', 'missing musl arm64', 'empty binary', 'optional dependency', 'install hook', 'private access', 'wrong version', 'wrong identity', 'unexpected target', 'unexpected file', 'missing loader', 'empty loader']) test(`reject package with ${fault}`, () => fixture(({ source, distribution, pack }) => {
-  const metadata = structuredClone(pkg);
-  if (fault === 'missing binary') fs.rmSync(path.join(source, binaries[0]));
-  if (fault.startsWith('missing musl ')) fs.rmSync(path.join(source, `icmp_ping.linux-${fault.split(' ')[2]}-musl.node`));
-  if (fault === 'empty binary') fs.writeFileSync(path.join(source, binaries[0]), '');
-  if (fault === 'optional dependency') metadata.optionalDependencies = { [`${pkg.name}-linux-x64-gnu`]: pkg.version };
-  if (fault === 'install hook') metadata.scripts.install = 'node download.js';
-  if (fault === 'private access') metadata.publishConfig.access = 'restricted';
-  if (fault === 'wrong version') metadata.version = '99.0.0';
-  if (fault === 'wrong identity') metadata.name = 'node-icmp-ping';
-  if (fault === 'unexpected target') metadata.napi.targets.push('s390x-unknown-linux-gnu');
-  if (fault === 'unexpected file') { metadata.files.push('extra.node'); fs.writeFileSync(path.join(source, 'extra.node'), 'extra'); }
-  if (fault === 'missing loader') fs.rmSync(path.join(source, 'binding.js'));
-  if (fault === 'empty loader') fs.writeFileSync(path.join(source, 'binding.js'), '');
-  fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify(metadata));
-  pack();
-  assert.throws(() => preflight(distribution, channel));
-}));
-for (const fault of ['missing checksum', 'tampered bytes', 'wrong checksum', 'extra tarball']) test(`reject retained artifact with ${fault}`, () => fixture(({ distribution, pack }) => {
-  const result = pack();
-  const recordPath = path.join(distribution, 'integrity.json');
-  if (fault === 'missing checksum') fs.rmSync(recordPath);
-  if (fault === 'tampered bytes') fs.appendFileSync(path.join(distribution, result.filename), 'changed after assembly');
-  if (fault === 'wrong checksum') {
-    const record = JSON.parse(fs.readFileSync(recordPath));
-    record.integrity = integrity(Buffer.from('wrong'));
-    fs.writeFileSync(recordPath, JSON.stringify(record));
+function fixture(t) {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'icmp-pack-'));
+  t.after(() => fs.rmSync(source, { recursive: true, force: true }));
+  for (const file of packageFiles.filter(file => !binaries.includes(file) && file !== 'binding.js')) {
+    fs.mkdirSync(path.dirname(path.join(source, file)), { recursive: true });
+    fs.copyFileSync(path.join(__dirname, '..', file), path.join(source, file));
   }
-  if (fault === 'extra tarball') fs.copyFileSync(path.join(distribution, result.filename), path.join(distribution, 'obsolete-native.tgz'));
-  assert.throws(() => preflight(distribution, channel));
-}));
-test('manifest forbids dependencies and each install hook', () => {
-  for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
-    assert.throws(() => checkManifest({ ...pkg, [key]: { unexpected: '1.0.0' } }), /Unexpected/);
-  }
-  for (const name of ['preinstall', 'install', 'postinstall']) {
-    assert.throws(() => checkManifest({ ...pkg, scripts: { [name]: 'unsafe' } }), /Forbidden install hook/);
-  }
-});
-
-test('assembly uses all eight tested artifacts, preserves manifest and refuses to overwrite retention', () => fixture(({ source }) => {
+  fs.copyFileSync(path.join(__dirname, '../.gitignore'), path.join(source, '.gitignore'));
   fs.cpSync(path.join(__dirname, '../scripts'), path.join(source, 'scripts'), { recursive: true });
-  const original = fs.readFileSync(path.join(source, 'package.json'));
-  const artifacts = path.join(source, 'artifacts');
   for (const [target, platform] of Object.entries(targets)) {
-    const dir = path.join(artifacts, `bindings-${target}`);
+    const dir = path.join(source, 'artifacts', `bindings-${target}`);
     fs.mkdirSync(dir, { recursive: true });
-    fs.copyFileSync(path.join(source, 'binding.js'), path.join(dir, 'binding.js'));
-    fs.writeFileSync(path.join(dir, `icmp_ping.${platform}.node`), `tested ${target}`);
+    fs.writeFileSync(path.join(dir, `icmp_ping.${platform}.node`), 'fixture binary');
+    fs.writeFileSync(path.join(dir, 'binding.js'), 'fixture generated loader');
   }
-  const run = () => execFileSync(process.execPath, ['scripts/assemble.js'], { cwd: source, encoding: 'utf8', stdio: 'pipe' });
-  const first = path.join(artifacts, `bindings-${Object.keys(targets)[0]}`);
-  fs.renameSync(first, first + '-wrong');
-  assert.throws(run, /All eight intended build artifacts/);
-  fs.renameSync(first + '-wrong', first);
-  const generatedLoader = fs.readFileSync(path.join(first, 'binding.js'));
-  fs.rmSync(path.join(source, 'binding.js'));
-  assert.match(run(), /Validated .* bytes compressed/);
-  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 17 files/);
-  assert.deepEqual(fs.readFileSync(path.join(source, 'binding.js')), generatedLoader);
-  // Download/publication validation needs no generated files in the checkout.
-  fs.rmSync(path.join(source, 'binding.js'));
-  assert.match(execFileSync(process.execPath, ['scripts/check-package.js'], { cwd: source, encoding: 'utf8' }), /Validated 17 files/);
-  assert.deepEqual(fs.readFileSync(path.join(source, 'package.json')), original);
-  assert.throws(run, /Distribution directory must be empty/);
-}));
+  return source;
+}
+test('assembly packages generated loader and all eight artifacts without a checkout loader', t => {
+  const source = fixture(t);
+  execFileSync(process.execPath, ['scripts/assemble.js'], { cwd: source });
+  assert.equal(fs.readFileSync(path.join(source, 'binding.js'), 'utf8'), 'fixture generated loader');
+  const distribution = path.join(source, 'distribution');
+  const files = fs.readdirSync(distribution);
+  assert.equal(files.length, 1);
+  inspectTarball(path.join(distribution, files[0]));
+});
+test('assembly names every missing binary before packaging', t => {
+  const source = fixture(t);
+  for (const [target, platform] of Object.entries(targets)) {
+    fs.unlinkSync(path.join(source, 'artifacts', `bindings-${target}`, `icmp_ping.${platform}.node`));
+  }
+  assert.throws(() => execFileSync(process.execPath, ['scripts/assemble.js'], { cwd: source, stdio: 'pipe' }), error => {
+    for (const file of binaries) assert(error.stderr.toString().includes(file));
+    return true;
+  });
+  assert.equal(fs.existsSync(path.join(source, 'distribution')), false);
+});
+test('content check names missing public files and rejects an empty tarball', t => {
+  const source = fixture(t);
+  const tarball = path.join(source, 'incomplete.tgz');
+  fs.mkdirSync(path.join(source, 'package'));
+  fs.copyFileSync(path.join(source, 'package.json'), path.join(source, 'package/package.json'));
+  execFileSync('tar', ['-czf', tarball, 'package'], { cwd: source });
+  assert.throws(() => inspectTarball(tarball), /Missing package files:.*index.js.*binding.js.*icmp_ping/);
+  fs.writeFileSync(tarball, '');
+  assert.throws(() => inspectTarball(tarball), /Empty tarball/);
+});

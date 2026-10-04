@@ -53,12 +53,11 @@
   },
   "scripts": {
     "build": "node scripts/build.js",
-    "test:release": "node --test test/release.test.js test/publish.test.js test/packaging.test.js test/loader.test.js test/prepare-version.test.js",
+    "test:release": "node --test test/versions.test.js test/packaging.test.js test/loader.test.js",
     "test": "node --test test/api.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:resources": "node --test test/resources.test.js",
-    "package:check": "node scripts/check-package.js",
-    "prepare-version": "node scripts/prepare-version.js"
+    "package:check": "node scripts/check-package.js"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.10.5"

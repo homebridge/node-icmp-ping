@@ -89,12 +89,14 @@ npm test
 npm run test:release
 ```
 
-`npm run build` always generates ignored `binding.js` and the native binary for the local host using the pinned napi-rs generator and locked Cargo dependencies. Run it before tests or runtime use, and again after source or version changes. `binding.js` is a build/package artifact: never edit or commit it. The public declarations remain in `index.d.ts`. Dependency installation and version preparation do not require generated outputs.
+`npm run build` always generates ignored `binding.js` and the native binary for the local host using the pinned napi-rs generator and locked Cargo dependencies. Run it before tests or runtime use, and again after source or version changes. `binding.js` is a build/package artifact: never edit or commit it. The public declarations remain in `index.d.ts`. Dependency installation does not require generated outputs. Native prebuilds are also generated and must never be hand-edited or committed.
 
-`npm run package:check` validates the retained all-platform tarball after CI assembly; a local single-target build is not a release distribution.
+`npm run package:check` checks the contents of the assembled all-platform tarball after CI assembly; a local single-target build is not a release distribution.
 
 `npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
-To prepare a version PR, run `npm run prepare-version -- 1.0.1`, inspect `git diff`, then commit and push the four version files. This command needs only Node and does not build anything. CI validates the versions and generates the build artifacts; after the PR is merged, create the GitHub Release as described in the [release process](docs/releasing.md).
+To bump a version, manually edit `package.json`, `package-lock.json` (both top-level and root-package versions), `Cargo.toml`, and the `node-icmp-ping` entry in `Cargo.lock` so they agree. Do not rebuild lockfiles for a version bump. Run `node scripts/check-versions.js`, inspect `git diff`, then commit and push normally.
 
-Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the version-PR preparation, automatic loader generation, retained-tarball testing, and publication failure handling.
+Publishing a GitHub Release runs builds and four Node 26 installed-package smoke jobs. Its **Set as a pre-release** checkbox chooses npm `beta`; unchecked chooses `latest`, independently of the version suffix or GitHub tag. The tag may differ from the package version. npm publication is attempted once; on failure inspect npm's error and the registry manually before further action. See the [release process](docs/releasing.md) for the complete procedure.
+
+Cargo.lock is committed because this npm-distributed native product should have reproducible dependency resolution. CI uses `--locked`. [Release process](docs/releasing.md) describes the version-PR preparation, automatic loader generation, representative installed-package testing, and publication failure handling.

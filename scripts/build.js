@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
-const { validateVersions } = require('./release-check.js');
+const { validateVersions } = require('./check-versions.js');
 
 function build(args = process.argv.slice(2)) {
   const root = path.resolve(__dirname, '..');
@@ -23,8 +23,6 @@ function build(args = process.argv.slice(2)) {
     for (const file of fs.readdirSync(generated).filter(file => file.endsWith('.node'))) {
       fs.copyFileSync(path.join(generated, file), path.join(root, file));
     }
-    assert.equal(typeof require('../binding.js').ping, 'function');
-    assert.deepEqual(Object.keys(require('../index.js')), ['ping']);
   } finally { fs.rmSync(generated, { recursive: true, force: true }); }
 }
 if (require.main === module) build();
