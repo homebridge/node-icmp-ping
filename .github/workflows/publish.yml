@@ -2,81 +2,13 @@ name: Publish GitHub Release to npm
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      confirmation:
-        description: 'Recover original v1.0.0 artifact 11073922734 (type recover-v1.0.0)'
-        required: true
-        type: string
 permissions:
   contents: read
 jobs:
-  validate:
-    if: github.repository == 'homebridge/node-icmp-ping' && github.event_name == 'release' && github.event.action == 'published'
-    runs-on: ubuntu-24.04
-    outputs:
-      channel: ${{ steps.release.outputs.channel }}
-      loader_changed: ${{ steps.loader.outputs.changed }}
-      loader_sha256: ${{ steps.loader.outputs.sha256 }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-      - id: release
-        run: node scripts/release-check.js
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: npm ci
-      - name: Regenerate loader with the locked CLI and canonical build
-        run: npm run build
-      - id: loader
-        run: node scripts/release-loader.js
-      - uses: actions/upload-artifact@v7
-        if: steps.loader.outputs.changed == 'true'
-        with:
-          name: regenerated-loader
-          path: binding.js
-          if-no-files-found: error
-  repair-loader:
-    needs: validate
-    if: needs.validate.outputs.loader_changed == 'true'
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: release-loader-repair
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-      - uses: actions/download-artifact@v8
-        with:
-          name: regenerated-loader
-          path: regenerated-loader
-      # Never execute the generated loader or install dependencies with write permission.
-      - name: Commit only the regenerated loader and stop this release
-        env:
-          LOADER_SHA256: ${{ needs.validate.outputs.loader_sha256 }}
-        run: node scripts/repair-release-loader.js
   build:
-    needs: validate
-    if: needs.validate.outputs.loader_changed == 'false'
     uses: ./.github/workflows/native.yml
   publish:
-    if: github.event_name == 'release' && github.event.action == 'published' && needs.validate.outputs.loader_changed == 'false'
-    needs: [validate, build]
+    needs: build
     runs-on: ubuntu-24.04
     concurrency:
       group: npm-production-publication
@@ -86,52 +18,18 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.x
+          node-version: 26.x
           registry-url: https://registry.npmjs.org
-      - name: Recheck release identity and metadata before publication or recovery
-        run: node scripts/release-check.js
-        env:
-          GH_TOKEN: ${{ github.token }}
       - run: npm install --global npm@11.19.1
       - uses: actions/download-artifact@v8
         with:
           name: npm-distribution
           path: distribution
-      - name: Verify retained bundled tarball and publish one package
-        env:
-          CHANNEL: ${{ needs.validate.outputs.channel }}
-        run: node scripts/publish.js
-  recover-v1:
-    if: github.repository == 'homebridge/node-icmp-ping' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'recover-v1.0.0'
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: npm-production-publication
-      cancel-in-progress: false
-    environment: npm-production
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-          registry-url: https://registry.npmjs.org
-      - run: npm install --global npm@11.19.1
-      # No build, assembly, pack, or caller-selected artifact/ref in this route.
-      - name: Validate original release and recover only its pinned tested archive
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/recover-v1.js
+      - name: Publish stable
+        if: "!github.event.release.prerelease"
+        run: npm publish "$GITHUB_WORKSPACE"/distribution/*.tgz --access public --provenance --tag latest
+      - name: Publish prerelease
+        if: "github.event.release.prerelease"
+        run: npm publish "$GITHUB_WORKSPACE"/distribution/*.tgz --access public --provenance --tag beta
