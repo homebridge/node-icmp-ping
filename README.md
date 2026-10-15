@@ -1,3 +1,8 @@
+<div>
+    <a href="https://www.npmjs.com/package/@homebridge/node-icmp-ping"><img src="https://img.shields.io/github/package-json/v/homebridge/node-icmp-ping?color=F99211" /></a>
+    <a href="https://www.npmjs.com/package/@homebridge/node-icmp-ping"><img src="https://img.shields.io/github/v/release/homebridge/node-icmp-ping?color=FFd461" /></a>
+</div>
+
 # @homebridge/node-icmp-ping
 
 `@homebridge/node-icmp-ping` performs ICMP Echo directly through a native Rust/Node-API implementation. It does not invoke the system `ping` executable.
