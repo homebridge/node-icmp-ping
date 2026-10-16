@@ -19,10 +19,10 @@ One npm package bundles all eight prebuilt binaries beside the napi-rs generated
 
 ## Privileges and platforms
 
-The process must have permission to create **raw ICMP sockets**:
+ICMP socket permissions depend on the platform:
 
 - Linux: root or `CAP_NET_RAW`. Datagram ping-socket permissions alone are insufficient.
-- macOS: run with root privileges for raw sockets.
+- macOS: IPv4 falls back to an unprivileged ICMP datagram socket when raw-socket permission is denied. IPv6 still requires root.
 - Windows: run Node.js with **Administrator privileges**. Windows v1 uses Winsock raw ICMP, with no fallback to `IcmpSendEcho` or `Icmp6SendEcho2`.
 
 Permission failures reject with a message explaining the privilege requirement. ICMP filtering/firewalls can cause negative results even when a host is running. Permission restrictions are part of the platform contract.
@@ -72,7 +72,7 @@ try {
 
 Each call attempts at most **three Echo Requests**, waiting up to **1000 ms per attempt**, with TTL / IPv6 hop limit **64** and **56 payload bytes** (64-byte ICMP Echo message including the 8-byte header, excluding IP headers). Retries stop on success or a matched negative response. RTT measures the successful attempt, not total retry duration.
 
-Each invocation owns its raw socket and closes it through Rust RAII before settling its Promise. There is no persistent session, socket, or `close()` API. A short-lived UDP socket is used only to select the local route; it sends no UDP packet. Echo traffic itself always uses a raw socket.
+Each invocation owns its ICMP socket and closes it through Rust RAII before settling its Promise. There is no persistent session, socket, or `close()` API. A short-lived UDP socket is used only to select the local route; it sends no UDP packet. Echo traffic uses raw ICMP, with the IPv4 ICMP datagram fallback on macOS.
 
 Independent concurrent calls are safe:
 
@@ -98,7 +98,7 @@ npm run test:release
 
 `npm run package:check` checks the contents of the assembled all-platform tarball after CI assembly; a local single-target build is not a release distribution.
 
-`npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` require raw-socket privileges and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
+`npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` include IPv6, require raw-socket privileges, and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
 
 To bump a version, manually edit `package.json`, `package-lock.json` (both top-level and root-package versions), `Cargo.toml`, and the `node-icmp-ping` entry in `Cargo.lock` so they agree. Do not rebuild lockfiles for a version bump. Run `node scripts/check-versions.js`, inspect `git diff`, then commit and push normally.
 

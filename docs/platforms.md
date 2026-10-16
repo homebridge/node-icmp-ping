@@ -21,7 +21,8 @@ coverage is representative, not a claim that every architecture was executed.
 Node 22/24/26 are supported; CI exercises only the newest supported major, 26.
 See [releasing](releasing.md) for assembly and publication details.
 
-Raw ICMP is the only backend. Tests require raw-socket privileges and do not skip
+Echo uses raw ICMP, with an unprivileged IPv4 ICMP datagram fallback on macOS.
+The full IPv4/IPv6 tests require raw-socket privileges and do not skip
 permission failures. Windows needs Administrator privileges; Windows IP Helper
 Echo APIs are not used. Smoke tests install the assembled tarball offline with
 scripts disabled, then exercise the installed addon. Resource tests perform 64
