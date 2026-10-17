@@ -55,7 +55,7 @@ pub fn operation_error(stage: &str, error: &io::Error) -> String {
     if error.kind() == io::ErrorKind::PermissionDenied
         || matches!(error.raw_os_error(), Some(1 | 13 | 10013))
     {
-        format!("ICMP {stage}: raw-socket permission denied; Windows requires Administrator privileges, Linux requires CAP_NET_RAW/root, macOS requires root ({error})")
+        format!("ICMP {stage}: socket permission denied; Windows requires Administrator privileges, Linux requires CAP_NET_RAW/root, macOS IPv4 tries an unprivileged ICMP datagram socket, IPv6 requires root ({error})")
     } else {
         format!("ICMP {stage}: {error}")
     }
@@ -72,25 +72,42 @@ pub trait Transport {
     fn send(&mut self, packet: &[u8], target: IpAddr) -> io::Result<()>;
     fn receive(&mut self, bytes: &mut [u8], wait: Duration) -> io::Result<(usize, IpAddr)>;
 }
+// Darwin's IPv4 ICMP datagram sockets preserve the supplied Echo identifier and
+// checksum and receive the same IPv4 header as raw sockets (XNU icmp_dgram_send
+// delegates to rip_send/rip_input). Keep the existing codec and identifier lease.
+// Do not generalize to Linux ping sockets: those have kernel-managed identifiers
+// and omit the outer IPv4 header. The original node-raw-socket fallback was IPv4.
+#[cfg(any(target_os = "macos", test))]
+fn macos_socket<S>(target: IpAddr, mut create: impl FnMut(Type) -> io::Result<S>) -> io::Result<S> {
+    match create(Type::RAW) {
+        Err(error) if target.is_ipv4() && error.kind() == io::ErrorKind::PermissionDenied => {
+            create(Type::DGRAM)
+        }
+        result => result,
+    }
+}
+
 pub struct Raw {
     socket: UdpSocket,
 }
 impl Raw {
     pub fn open(target: IpAddr, options: &Options) -> Result<(Self, IpAddr), String> {
-        let socket = Socket::new(
-            if target.is_ipv4() {
-                Domain::IPV4
-            } else {
-                Domain::IPV6
-            },
-            Type::RAW,
-            Some(if target.is_ipv4() {
-                Protocol::ICMPV4
-            } else {
-                Protocol::ICMPV6
-            }),
-        )
-        .map_err(|e| operation_error("socket creation", &e))?;
+        let domain = if target.is_ipv4() {
+            Domain::IPV4
+        } else {
+            Domain::IPV6
+        };
+        let protocol = if target.is_ipv4() {
+            Protocol::ICMPV4
+        } else {
+            Protocol::ICMPV6
+        };
+        let create = |kind| Socket::new(domain, kind, Some(protocol));
+        #[cfg(target_os = "macos")]
+        let socket = macos_socket(target, create);
+        #[cfg(not(target_os = "macos"))]
+        let socket = create(Type::RAW);
+        let socket = socket.map_err(|e| operation_error("socket creation", &e))?;
         if target.is_ipv4() {
             socket.set_ttl_v4(options.ttl)
         } else {
@@ -120,7 +137,7 @@ impl Raw {
             .map_err(|e| operation_error("source binding", &e))?;
         // socket2's safe ownership conversion supplies std's initialized-buffer
         // send/recv interface for the same socket descriptor. It does not change
-        // SOCK_RAW to UDP and does not introduce a UDP transport or session.
+        // the socket type and does not introduce a UDP transport or session.
         socket
             .set_write_timeout(Some(options.timeout))
             .map_err(|e| operation_error("send timeout configuration", &e))?;
@@ -236,6 +253,79 @@ pub fn probe<T: Transport>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn macos_fallback_policy() {
+        for address in ["127.0.0.1", "::1"] {
+            for error in [
+                None,
+                Some(io::ErrorKind::PermissionDenied),
+                Some(io::ErrorKind::Other),
+            ] {
+                let mut calls = Vec::new();
+                let result = macos_socket(address.parse().unwrap(), |kind| {
+                    calls.push(kind);
+                    if kind == Type::RAW {
+                        if let Some(error) = error {
+                            return Err(io::Error::from(error));
+                        }
+                    }
+                    Ok(())
+                });
+                let fallback =
+                    address == "127.0.0.1" && error == Some(io::ErrorKind::PermissionDenied);
+                assert_eq!(
+                    calls,
+                    if fallback {
+                        vec![Type::RAW, Type::DGRAM]
+                    } else {
+                        vec![Type::RAW]
+                    }
+                );
+                assert_eq!(result.is_ok(), error.is_none() || fallback);
+            }
+        }
+        let error = macos_socket::<()>("127.0.0.1".parse().unwrap(), |kind| {
+            Err(io::Error::from(if kind == Type::RAW {
+                io::ErrorKind::PermissionDenied
+            } else {
+                io::ErrorKind::AddrNotAvailable
+            }))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AddrNotAvailable);
+    }
+
+    // Run explicitly in CI as a normal user. An unavailable raw socket must not
+    // cause this regression test to skip or silently succeed with a timeout.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires unprivileged macOS network access"]
+    fn macos_unprivileged_ipv4_echo() {
+        assert_eq!(
+            Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        std::thread::scope(|scope| {
+            for size in [16, 57, 1200] {
+                scope.spawn(move || {
+                    let target = "127.0.0.1".parse().unwrap();
+                    let options = Options {
+                        payload_size: size,
+                        ..Options::default()
+                    };
+                    let lease = crate::identifier::Lease::acquire().unwrap();
+                    let (mut socket, local) = Raw::open(target, &options).unwrap();
+                    let payload = vec![size as u8; size];
+                    let outcome =
+                        probe(&mut socket, target, local, lease.0, &payload, &options).unwrap();
+                    assert!(outcome.latency.is_some(), "{}", outcome.message);
+                });
+            }
+        });
+    }
+
     struct Fake {
         sends: Vec<Vec<u8>>,
         response: Option<Vec<u8>>,

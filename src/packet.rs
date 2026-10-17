@@ -224,6 +224,21 @@ mod tests {
         bytes.extend(message);
         bytes
     }
+    // Both Darwin raw and ICMP datagram sockets deliver this host-order form.
+    fn darwin_received(mut wire: Vec<u8>) -> Vec<u8> {
+        let header = (wire[0] as usize & 15) * 4;
+        let length = u16::from_be_bytes([wire[2], wire[3]]) - header as u16;
+        wire[2..4].copy_from_slice(&length.to_ne_bytes());
+        let fragment = u16::from_be_bytes([wire[6], wire[7]]);
+        wire[6..8].copy_from_slice(&fragment.to_ne_bytes());
+        if matches!(wire[header], 3 | 11 | 12) {
+            let offset = header + 8;
+            let length = u16::from_be_bytes([wire[offset + 2], wire[offset + 3]]);
+            wire[offset + 2..offset + 4].copy_from_slice(&length.to_ne_bytes());
+        }
+        normalize_macos_ipv4(&mut wire);
+        wire
+    }
     #[test]
     fn known_checksum_and_odd_length() {
         assert_eq!(checksum(&[0, 1, 0xf2, 3, 0xf4, 0xf5, 0xf6, 0xf7]), 0x220d);
@@ -277,6 +292,13 @@ mod tests {
             } else {
                 wrap4(&msg, target, local)
             };
+            if target.is_ipv4() {
+                assert_eq!(darwin_received(packet.clone()), packet);
+                assert_eq!(
+                    parse(&darwin_received(packet.clone()), target, &exp),
+                    Some(Reply::Echo)
+                );
+            }
             assert_eq!(parse(&packet, target, &exp), Some(Reply::Echo));
             assert_eq!(parse(&packet, target, &Expected { seq: 4, ..exp }), None);
             assert_eq!(parse(&packet, target, &Expected { id: 13, ..exp }), None);
@@ -438,6 +460,13 @@ mod tests {
                         wrap4(&message, router, local)
                     } else {
                         message
+                    };
+                    let packet = if target.is_ipv4() {
+                        let normalized = darwin_received(packet.clone());
+                        assert_eq!(normalized, packet);
+                        normalized
+                    } else {
+                        packet
                     };
                     assert!(matches!(
                         parse(&packet, router, actual),
