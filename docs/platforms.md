@@ -23,8 +23,8 @@ See [releasing](releasing.md) for assembly and publication details.
 
 Echo uses raw ICMP first, with permission-triggered ICMP datagram fallbacks on Linux (IPv4/IPv6) and macOS (IPv4).
 Installed-package CI smoke tests run with raw-socket privileges and do not skip
-permission failures. Separate Linux tests explicitly remove raw privileges. Windows needs Administrator privileges; Windows IP Helper
-Echo APIs are not used. Smoke tests install the assembled tarball offline with
+permission failures. Separate Linux tests explicitly remove raw privileges. Separate Windows tests use a standard-user token and require raw creation to fail
+with WSAEACCES before checking the IP Helper Echo fallback. Smoke tests install the assembled tarball offline with
 scripts disabled, then exercise the installed addon. Resource tests perform 64
 sequential calls and bounded worker shutdown; descriptor counts are checked on
 Linux, not macOS/Windows. No external Internet Echo target is required.
@@ -90,3 +90,59 @@ extension configuration. Native musl x64/arm64 CI also runs deterministic tests
 and the real Echo/concurrency/cleanup case as UID/GID 65534 with all capabilities
 dropped and an explicit ping group range. Full firewall/timeout namespace coverage
 is on glibc Linux. Existing privileged installed-package smoke checks remain.
+
+
+## Windows Echo fallback audit and tests
+
+Only `WSAEACCES` (10013) from Winsock raw socket **creation** selects IP Helper.
+A created raw socket retains its existing setup, codec and send/receive path.
+Other creation errors and all raw setup/runtime errors propagate without fallback.
+IPv4 uses `IcmpCreateFile` / `IcmpSendEcho`; IPv6 uses `Icmp6CreateFile` /
+`Icmp6SendEcho2` with null Event/APC parameters. Synchronous calls run on the
+existing Node-API worker pool. No callback, thread or outstanding native request
+survives the call. Each invocation owns its handle and closes it with
+`IcmpCloseHandle`, including after failures. Calls do not share mutable buffers
+or handles, and the OS chooses the source address and manages Echo correlation.
+
+The shared probe loop retains three attempts, per-attempt monotonic deadlines,
+monotonic RTT, TTL/hop limit 64, and the same random 56-byte payload. The adapter
+passes only the payload (not the application ICMP header) to Windows, once per
+attempt. Remaining time is rounded down to whole milliseconds for the API;
+late replies are discarded by the existing deadline check. A mismatched Echo
+consumes the remainder of that attempt without sending an extra request.
+
+SDK bindings supply native structure layouts. Reply allocations are initialized,
+aligned, and include header, payload, eight error bytes and `IO_STATUS_BLOCK`
+space. IPv4 data pointers and lengths are bounded within the reply allocation
+before reading. IPv6 data follows the 36-byte reply header and has no explicit
+received-length field; comparison uses RequestSize, as in .NET's Windows Ping.
+Both families validate source and payload. The OS owns wire identifier, sequence,
+checksum and negative correlation; the API does not expose quotes to apply the
+raw codec's extra checks. This is a Windows API limitation, not equivalent evidence
+of userspace raw-packet validation.
+
+A zero return reads `GetLastError` immediately. Known timeout statuses retry;
+known unreachable/too-big/time-exceeded/parameter-problem statuses resolve
+negatively with the existing reason vocabulary. IPv4 protocol-unreachable and
+IPv6 administrative-prohibition share a number and are mapped by family.
+Resource exhaustion, invalid parameters, general failure and unknown statuses
+reject rather than becoming a timeout or a claim that the host is down.
+
+References: Microsoft [IcmpSendEcho](https://learn.microsoft.com/en-us/windows/win32/api/icmpapi/nf-icmpapi-icmpsendecho),
+[Icmp6SendEcho2](https://learn.microsoft.com/en-us/windows/win32/api/icmpapi/nf-icmpapi-icmp6sendecho2),
+[reply statuses](https://learn.microsoft.com/en-us/windows/win32/api/ipexport/ns-ipexport-icmp_echo_reply),
+and [.NET Windows Ping](https://github.com/dotnet/runtime/blob/main/src/libraries/System.Net.Ping/src/System/Net/NetworkInformation/Ping.Windows.cs).
+
+Windows x64 and arm64 CI run deterministic selection/status/buffer/retry/deadline
+tests and actual invalid-handle API failures with repeated handle cleanup.
+`scripts/test-windows-echo.ps1` creates a disposable local standard user and
+scheduled task, copies the test executable to a temporary accessible directory,
+and runs the production path. Both families must first fail raw creation with
+10013; permission-based skips are forbidden. Loopback tests cover 16/56/57/1200
+payload bytes, 160 concurrent calls, and process handle counts after warmup.
+The script removes its task, account and directory in `finally`.
+Existing elevated installed-package smoke tests retain raw-path coverage.
+Negative status categories and late/timeout responses are deterministic fixtures;
+CI does not manufacture router ICMP errors or depend on Internet addresses.
+Loopback does not establish compatibility with every firewall/service policy,
+remote network or older Windows release.

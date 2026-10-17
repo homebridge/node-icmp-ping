@@ -1,5 +1,9 @@
 use crate::packet::{self, Expected, Reply};
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::Socket;
+#[cfg(any(not(target_os = "windows"), test))]
+use socket2::Type;
+#[cfg(not(target_os = "windows"))]
+use socket2::{Domain, Protocol};
 use std::io;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
@@ -55,7 +59,7 @@ pub fn operation_error(stage: &str, error: &io::Error) -> String {
     if error.kind() == io::ErrorKind::PermissionDenied
         || matches!(error.raw_os_error(), Some(1 | 13 | 10013))
     {
-        format!("ICMP {stage}: socket permission denied; Windows requires Administrator privileges, Linux requires CAP_NET_RAW/root, macOS IPv4 tries an unprivileged ICMP datagram socket, IPv6 requires root ({error})")
+        format!("ICMP {stage}: socket permission denied; Windows raw ICMP requires Administrator privileges (creation denial tries the ICMP Echo API), Linux requires CAP_NET_RAW/root, macOS IPv4 tries an unprivileged ICMP datagram socket, IPv6 requires root ({error})")
     } else {
         format!("ICMP {stage}: {error}")
     }
@@ -133,7 +137,11 @@ pub fn open(target: IpAddr, options: &Options) -> Result<(Box<dyn Transport>, Ip
         let (transport, local) = Raw::from_socket(socket, target, options)?;
         Ok((Box::new(transport), local))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        crate::windows::open(target, options)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let (transport, local) = Raw::open(target, options)?;
         Ok((Box::new(transport), local))
@@ -144,7 +152,7 @@ pub struct Raw {
     socket: UdpSocket,
 }
 impl Raw {
-    #[cfg(any(not(target_os = "linux"), test))]
+    #[cfg(all(not(target_os = "windows"), any(not(target_os = "linux"), test)))]
     pub fn open(target: IpAddr, options: &Options) -> Result<(Self, IpAddr), String> {
         let domain = if target.is_ipv4() {
             Domain::IPV4
@@ -349,6 +357,7 @@ mod tests {
                 assert!(result.is_err());
             }
         }
+        #[cfg(unix)]
         for code in [1, 13] {
             let mut calls = 0;
             let error = linux_socket::<()>(|_| {

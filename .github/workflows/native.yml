@@ -70,6 +70,13 @@ jobs:
           node -p "JSON.stringify({node:process.version,napi:process.versions.napi,arch:process.arch,platform:process.platform})"
           rustc --version --verbose
           cargo --version
+      - name: Windows deterministic tests and native handle error cleanup
+        if: runner.os == 'Windows'
+        run: cargo test --locked -- --test-threads=1
+      - name: Verify standard-user Windows IPv4/IPv6 Echo fallback
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-echo.ps1
       - name: Verify unprivileged macOS IPv4 fallback
         if: runner.os == 'macOS'
         run: cargo test --locked macos_unprivileged_ipv4_echo -- --ignored

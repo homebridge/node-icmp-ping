@@ -3,6 +3,8 @@ mod identifier;
 #[cfg(target_os = "linux")]
 mod linux;
 mod packet;
+#[cfg(target_os = "windows")]
+mod windows;
 use napi::{bindgen_prelude::AsyncTask, Env, Error, Result, Status, Task};
 use napi_derive::napi;
 use std::net::IpAddr;

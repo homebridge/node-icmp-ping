@@ -218,6 +218,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "socket2",
+ "windows-sys",
 ]
 
 [[package]]
