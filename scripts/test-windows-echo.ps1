@@ -3,9 +3,9 @@
 $ErrorActionPreference = 'Stop'
 $account = 'icmp_echo_ci'
 $root = Join-Path $env:PUBLIC ('icmp-echo-' + [guid]::NewGuid().ToString('N'))
-$task = 'icmp-echo-' + [guid]::NewGuid().ToString('N')
 $password = 'Ic9!' + [guid]::NewGuid().ToString('N')
 $created = $false
+$process = $null
 try {
     $build = & cargo test --locked --no-run --message-format=json
     if ($LASTEXITCODE -ne 0) { throw 'Native test build failed' }
@@ -28,26 +28,26 @@ try {
     whoami /all | Out-File identity.txt
     & .\echo-tests.exe windows::tests::windows_unprivileged_echo --ignored --exact --nocapture --test-threads=1 *> result.txt
     $code = $LASTEXITCODE
+    if ($code -eq 0) {
+        & .\echo-tests.exe windows::tests::real_handle_cleanup_on_api_error --exact --nocapture --test-threads=1 *>> result.txt
+        $code = $LASTEXITCODE
+    }
     [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'exit.txt'), [string]$code)
 } catch {
     $_ | Out-File result.txt -Append
     [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'exit.txt'), '1')
 }
 '@ | Set-Content (Join-Path $root 'run.ps1')
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$root\run.ps1`""
-    Register-ScheduledTask -TaskName $task -Action $action -User "$env:COMPUTERNAME\$account" -Password $password -RunLevel Limited -Force | Out-Null
-    Start-ScheduledTask -TaskName $task
-    $deadline = (Get-Date).AddMinutes(3)
-    while (!(Test-Path "$root\exit.txt") -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+    $credential = [PSCredential]::new("$env:COMPUTERNAME\$account", (ConvertTo-SecureString $password -AsPlainText -Force))
+    $process = Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -Credential $credential -LoadUserProfile -WorkingDirectory $root -ArgumentList "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$root\run.ps1`"" -PassThru
+    if (!$process.WaitForExit(180000)) { throw 'Standard-user test process exceeded three minutes' }
+    Write-Host "Standard-user process exit: $($process.ExitCode)"
     if (Test-Path "$root\identity.txt") { Get-Content "$root\identity.txt" }
     if (Test-Path "$root\result.txt") { Get-Content "$root\result.txt" }
     if (!(Test-Path "$root\exit.txt")) { throw 'Standard-user integration test did not complete' }
     if ((Get-Content "$root\exit.txt").Trim() -ne '0') { throw 'Standard-user integration test failed' }
 } finally {
-    if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-        Unregister-ScheduledTask -TaskName $task -Confirm:$false
-    }
+    if ($process -and !$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
     if ($created) { Remove-LocalUser -Name $account }
     if (Test-Path $root) { Remove-Item $root -Recurse -Force }
 }

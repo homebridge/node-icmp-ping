@@ -135,12 +135,12 @@ and [.NET Windows Ping](https://github.com/dotnet/runtime/blob/main/src/librarie
 
 Windows x64 and arm64 CI run deterministic selection/status/buffer/retry/deadline
 tests and actual invalid-handle API failures with repeated handle cleanup.
-`scripts/test-windows-echo.ps1` creates a disposable local standard user and
-scheduled task, copies the test executable to a temporary accessible directory,
-and runs the production path. Both families must first fail raw creation with
+`scripts/test-windows-echo.ps1` creates a disposable local standard user, copies the test executable to a temporary accessible directory,
+and launches it with that user’s credentials. Both families must first fail raw creation with
 10013; permission-based skips are forbidden. Loopback tests cover 16/56/57/1200
-payload bytes, 160 concurrent calls, and process handle counts after warmup.
-The script removes its task, account and directory in `finally`.
+payload bytes, 160 calls in concurrent batches, and process handle counts after warmup.
+The standard-user process also repeats actual invalid-handle errors for both
+address families. The script removes its account and directory in `finally`.
 Existing elevated installed-package smoke tests retain raw-path coverage.
 Negative status categories and late/timeout responses are deterministic fixtures;
 CI does not manufacture router ICMP errors or depend on Internet addresses.
