@@ -63,7 +63,7 @@ quoted Echo and extended ICMP error metadata. We check origin/family, destinatio
 identifier, sequence, checksum and every available payload byte before accepting
 a negative result. Truncated ancillary data and short/mismatched quotes are
 ignored. The kernel validates the incoming error packet; userspace does not receive
-its original outer checksum. A bare asynchronous errno cannot supply this evidence.
+its original outer checksum. A bare asynchronous errno cannot supply this evidence and rejects the operation rather than declaring a matched negative. A send interrupted by a queued stale error gets one bounded syscall retry.
 The same negative reason mapping applies to raw packets and ping error metadata.
 
 Reference implementations: Linux [IPv4 ping socket handling](https://github.com/torvalds/linux/blob/v6.12/net/ipv4/ping.c),

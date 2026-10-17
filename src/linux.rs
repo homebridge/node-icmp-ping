@@ -258,7 +258,29 @@ impl Transport for Ping {
         self.error = None;
         // Linux replaces identifier/checksum. The encoded values already match
         // its assigned identifier and checksum, allowing exact error correlation.
-        let sent = self.socket.send_to(packet, SocketAddr::new(target, 0))?;
+        let sent = match self.socket.send_to(packet, SocketAddr::new(target, 0)) {
+            Ok(sent) => sent,
+            Err(error) => {
+                // An old error can arrive between draining and send. If an
+                // error record is queued, clear it and retry the failed syscall
+                // once (no Echo was sent by the failed syscall).
+                let mut queued = false;
+                for _ in 0..64 {
+                    if self.queued_error(&mut discard)?.is_none() {
+                        break;
+                    }
+                    queued = true;
+                }
+                self.error = None;
+                if !queued {
+                    return Err(io::Error::other(error));
+                }
+                self.socket.take_error()?;
+                self.socket
+                    .send_to(packet, SocketAddr::new(target, 0))
+                    .map_err(io::Error::other)?
+            }
+        };
         if sent != packet.len() {
             return Err(io::Error::new(
                 io::ErrorKind::WriteZero,
@@ -333,7 +355,10 @@ impl Transport for Ping {
                     if let Some(event) = self.queued_error(bytes)? {
                         return Ok(event);
                     }
-                    return Err(e);
+                    // A bare asynchronous errno has no sequence/payload
+                    // evidence. Reject the operation instead of reporting an
+                    // uncorrelated ICMP negative through engine::network_error.
+                    return Err(io::Error::other(e));
                 }
             }
         }
@@ -527,6 +552,31 @@ mod tests {
                 continue;
             }
             if mode == "echo" {
+                for _ in 0..16 {
+                    let socket = Socket::new(
+                        if target.is_ipv4() {
+                            Domain::IPV4
+                        } else {
+                            Domain::IPV6
+                        },
+                        Type::DGRAM,
+                        Some(if target.is_ipv4() {
+                            Protocol::ICMPV4
+                        } else {
+                            Protocol::ICMPV6
+                        }),
+                    )
+                    .unwrap();
+                    assert!(Ping::open(
+                        socket,
+                        target,
+                        &Options {
+                            ttl: 256,
+                            ..options.clone()
+                        }
+                    )
+                    .is_err());
+                }
                 // Retain every socket concurrently to prove unique kernel IDs,
                 // then run real Echo probes with different payload lengths.
                 let mut sockets = Vec::new();
