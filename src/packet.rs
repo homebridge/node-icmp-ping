@@ -115,7 +115,7 @@ fn quoted_v6(packet: &[u8]) -> Option<(&[u8], IpAddr, IpAddr)> {
     None
 }
 
-fn reason(v6: bool, kind: u8, code: u8) -> Option<&'static str> {
+pub(crate) fn reason(v6: bool, kind: u8, code: u8) -> Option<&'static str> {
     match (v6, kind, code) {
         (false, 3, 0) => Some("Network unreachable"),
         (false, 3, 1) => Some("Host unreachable"),
@@ -152,6 +152,25 @@ pub fn parse(bytes: &[u8], source: IpAddr, expected: &Expected<'_>) -> Option<Re
         }
         packet
     };
+    parse_message(packet, source, expected)
+}
+
+// Linux ping sockets return the ICMP message without an outer IP header in
+// both families. The socket is bound to expected.local by the adapter.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn parse_ping_echo(
+    packet: &[u8],
+    source: IpAddr,
+    expected: &Expected<'_>,
+) -> Option<Reply> {
+    if packet.first() != Some(&if expected.target.is_ipv6() { 129 } else { 0 }) {
+        return None;
+    }
+    parse_message(packet, source, expected)
+}
+
+fn parse_message(packet: &[u8], source: IpAddr, expected: &Expected<'_>) -> Option<Reply> {
+    let v6 = expected.target.is_ipv6();
     if packet.len() < 8 {
         return None;
     }
@@ -300,6 +319,23 @@ mod tests {
                 );
             }
             assert_eq!(parse(&packet, target, &exp), Some(Reply::Echo));
+            assert_eq!(parse_ping_echo(&msg, target, &exp), Some(Reply::Echo));
+            assert_eq!(
+                parse_ping_echo(&msg, target, &Expected { id: 13, ..exp }),
+                None
+            );
+            assert_eq!(
+                parse_ping_echo(&msg, target, &Expected { seq: 4, ..exp }),
+                None
+            );
+            assert_eq!(parse_ping_echo(&msg, local, &exp), None);
+            for length in 0..msg.len() {
+                assert_eq!(parse_ping_echo(&msg[..length], target, &exp), None);
+            }
+            let mut corrupt = msg.clone();
+            *corrupt.last_mut().unwrap() ^= 1;
+            assert_eq!(parse_ping_echo(&corrupt, target, &exp), None);
+
             assert_eq!(parse(&packet, target, &Expected { seq: 4, ..exp }), None);
             assert_eq!(parse(&packet, target, &Expected { id: 13, ..exp }), None);
             assert_eq!(parse(&packet, local, &exp), None);

@@ -21,6 +21,22 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked
+  linux-ping-sockets:
+    name: Linux ping sockets (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - name: Raw and capability-free IPv4/IPv6 ping sockets in isolated network namespace
+        run: bash scripts/test-linux-ping.sh
   prebuild:
     needs: checks
     name: ${{ matrix.target }}
@@ -96,8 +112,23 @@ jobs:
               rustc --version --verbose
               test "$(rustc -vV | sed -n "s/^host: //p")" = "$TARGET"
               cargo --version
+              cargo test --locked
               npm ci
               npm run build -- --target "$TARGET"
+            '
+      - name: Verify unprivileged IPv4/IPv6 Echo on native musl
+        run: |
+          docker run --rm --cap-drop=ALL --user 65534:65534 \
+            --sysctl 'net.ipv4.ping_group_range=65534 65534' \
+            -e ICMP_LINUX_TEST_MODE=echo -v "$PWD:/work:ro" icmp-musl sh -ec '
+              found=0
+              for executable in target/debug/deps/node_icmp_ping-*; do
+                if test -f "$executable" && test -x "$executable"; then
+                  "$executable" linux::tests::linux_socket_integration --ignored --exact --nocapture
+                  found=$((found + 1))
+                fi
+              done
+              test "$found" = 1
             '
       - uses: actions/upload-artifact@v7
         with:
