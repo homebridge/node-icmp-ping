@@ -483,7 +483,11 @@ mod tests {
             assert!(wait <= Duration::from_millis(20));
             self.calls.set(self.calls.get() + 1);
             std::thread::sleep(self.delay);
-            status(self.code, false).map(Some)
+            if self.code == u32::MAX {
+                Ok(None) // a reply with the wrong address or payload
+            } else {
+                status(self.code, false).map(Some)
+            }
         }
     }
     #[test]
@@ -493,6 +497,7 @@ mod tests {
             (11010, 0, 3, false, false),
             (11003, 0, 1, false, false),
             (11006, 0, 1, false, true),
+            (u32::MAX, 0, 3, false, false),
             (0, 30, 3, false, false), // a success after the deadline is discarded
         ] {
             let count = Rc::new(Cell::new(0));
@@ -579,19 +584,21 @@ mod tests {
     fn real_handle_cleanup_on_api_error() {
         // Actual invalid-handle failure exercises native error handling without
         // changing machine networking. The owned real handle still drops.
-        let target = "127.0.0.1".parse().unwrap();
-        let options = Options::default();
-        let warmup = Native::open(target, &options).unwrap();
-        drop(warmup);
-        let before = handles();
-        for _ in 0..100 {
-            let mut api = Native::open(target, &options).unwrap();
-            let owned = api.handle.0;
-            api.handle.0 = INVALID_HANDLE_VALUE;
-            let result = api.exchange(&[1; 56], Duration::from_millis(10));
-            api.handle.0 = owned;
-            assert!(result.is_err());
+        for address in ["127.0.0.1", "::1"] {
+            let target = address.parse().unwrap();
+            let options = Options::default();
+            let warmup = Native::open(target, &options).unwrap();
+            drop(warmup);
+            let before = handles();
+            for _ in 0..100 {
+                let mut api = Native::open(target, &options).unwrap();
+                let owned = api.handle.0;
+                api.handle.0 = INVALID_HANDLE_VALUE;
+                let result = api.exchange(&[1; 56], Duration::from_millis(10));
+                api.handle.0 = owned;
+                assert!(result.is_err());
+            }
+            assert!(handles() <= before + 2);
         }
-        assert!(handles() <= before + 2);
     }
 }
