@@ -21,6 +21,22 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo test --locked
+  linux-ping-sockets:
+    name: Linux ping sockets (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - name: Raw and capability-free IPv4/IPv6 ping sockets in isolated network namespace
+        run: bash scripts/test-linux-ping.sh
   prebuild:
     needs: checks
     name: ${{ matrix.target }}

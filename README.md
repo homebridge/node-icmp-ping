@@ -21,13 +21,61 @@ One npm package bundles all eight prebuilt binaries beside the napi-rs generated
 
 ICMP socket permissions depend on the platform:
 
-- Linux: root or `CAP_NET_RAW`. Datagram ping-socket permissions alone are insufficient.
+- Linux: raw ICMP remains the primary transport (root or `CAP_NET_RAW`). Only a raw socket creation permission failure enables the IPv4/IPv6 ICMP datagram fallback, subject to `net.ipv4.ping_group_range`. See the configuration below.
 - macOS: IPv4 falls back to an unprivileged ICMP datagram socket when raw-socket permission is denied. IPv6 still requires root.
 - Windows: run Node.js with **Administrator privileges**. Windows v1 uses Winsock raw ICMP, with no fallback to `IcmpSendEcho` or `Icmp6SendEcho2`.
 
 Permission failures reject with a message explaining the privilege requirement. ICMP filtering/firewalls can cause negative results even when a host is running. Permission restrictions are part of the platform contract.
 
 Prebuild targets are Linux glibc and musl (Alpine 3.23) x64/arm64, macOS x64/arm64, and Windows MSVC x64/arm64. Other architectures are not included. Unsupported/missing native binaries cause a clear loading error; there is no system-command or alternate protocol fallback. See [platform coverage](docs/platforms.md) for build, CI, runtime, and artifact status separately.
+
+## Linux without raw-socket privileges
+
+Inspect the setting in the **same network namespace** as the service, and its effective/supplementary groups:
+
+```sh
+cat /proc/sys/net/ipv4/ping_group_range
+sysctl net.ipv4.ping_group_range
+id homebridge
+# For a running service, inspect its actual credentials (substitute its PID):
+grep '^Gid:\|^Groups:' /proc/PID/status
+```
+
+The inclusive numeric group range permits ICMP Echo sockets for matching effective
+or supplementary groups. Despite the `ipv4` name, Linux uses this setting for both
+IPv4 and IPv6 ping sockets. `1 0` disables access; distribution defaults vary.
+IPv6 also needs kernel IPv6 support, an enabled interface, and a usable route.
+Scoped IPv6 addresses remain outside the existing API.
+
+To permit only the service's primary group (replace `homebridge` if necessary):
+
+```sh
+ping_gid=$(id -g homebridge)
+sudo sysctl -w "net.ipv4.ping_group_range=$ping_gid $ping_gid"
+```
+
+For persistence on systems using `sysctl.d`, write the same **numeric** range:
+
+```sh
+printf 'net.ipv4.ping_group_range = %s %s\n' "$ping_gid" "$ping_gid" | sudo tee /etc/sysctl.d/90-homebridge-ping.conf
+sudo sysctl --system
+sysctl net.ipv4.ping_group_range
+```
+
+Review existing sysctl files before replacing a range: another service may rely on
+it, and later settings may override it. Restart the service after changing group
+membership. Containers have their own network namespace and security policy; the
+host/container administrator must configure the relevant namespace. This library
+does not change sysctls, capabilities, group memberships, or firewall rules.
+
+Use a dedicated service group where possible. A broad range permits every matching
+process to send Echo requests, increasing probing/traffic opportunities; it does
+not grant arbitrary raw sockets or `CAP_NET_RAW`. Root, `CAP_NET_RAW`, seccomp,
+LSM rules, and service sandboxing remain separate controls. Do not grant broad Node
+binary capabilities just to enable Echo when a restricted group range suffices.
+If both socket creation attempts fail, the error includes both causes and this
+setting's path. A disabled/unsupported fallback fails explicitly. Firewalls can
+still reject or drop requests, producing a negative result or a bounded timeout.
 
 ## API
 
@@ -72,7 +120,7 @@ try {
 
 Each call attempts at most **three Echo Requests**, waiting up to **1000 ms per attempt**, with TTL / IPv6 hop limit **64** and **56 payload bytes** (64-byte ICMP Echo message including the 8-byte header, excluding IP headers). Retries stop on success or a matched negative response. RTT measures the successful attempt, not total retry duration.
 
-Each invocation owns its ICMP socket and closes it through Rust RAII before settling its Promise. There is no persistent session, socket, or `close()` API. A short-lived UDP socket is used only to select the local route; it sends no UDP packet. Echo traffic uses raw ICMP, with the IPv4 ICMP datagram fallback on macOS.
+Each invocation owns its ICMP socket and closes it through Rust RAII before settling its Promise. There is no persistent session, socket, or `close()` API. A short-lived UDP socket is used only to select the local route; it sends no UDP packet. Echo traffic uses raw ICMP, with permission-triggered ICMP datagram fallbacks on Linux (IPv4/IPv6) and macOS (IPv4). These are ICMP sockets, not UDP probes.
 
 Independent concurrent calls are safe:
 
@@ -98,7 +146,7 @@ npm run test:release
 
 `npm run package:check` checks the contents of the assembled all-platform tarball after CI assembly; a local single-target build is not a release distribution.
 
-`npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` include IPv6, require raw-socket privileges, and must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required.
+`npm test` needs no privileges and exercises argument validation and the actual addon export. Pure Rust tests exercise encoding, checksums, parsing, correlation, negative mapping, and deterministic native retry logic. `npm run test:integration` and `npm run test:resources` include IPv6 and need working ICMP permissions; privileged raw-path smoke tests must pass in runtime-test CI; they do not silently skip permission failures. No external Internet target is required. On Linux, `bash scripts/test-linux-ping.sh` runs explicit raw, unprivileged Echo, denied-range, negative-reply, and dropped-reply tests in a disposable network namespace (requires sudo, `ip`, `iptables`, `ip6tables`, `setpriv`, and Python 3). The test process drops all capabilities; the harness configures only its temporary namespace. See [platform test details](docs/platforms.md).
 
 To bump a version, manually edit `package.json`, `package-lock.json` (both top-level and root-package versions), `Cargo.toml`, and the `node-icmp-ping` entry in `Cargo.lock` so they agree. Do not rebuild lockfiles for a version bump. Run `node scripts/check-versions.js`, inspect `git diff`, then commit and push normally.
 

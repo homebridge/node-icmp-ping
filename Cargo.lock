@@ -213,6 +213,7 @@ name = "node-icmp-ping"
 version = "1.0.1"
 dependencies = [
  "getrandom",
+ "libc",
  "napi",
  "napi-build",
  "napi-derive",

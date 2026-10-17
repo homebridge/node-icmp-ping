@@ -69,6 +69,12 @@ fn network_error(error: &io::Error) -> Option<&'static str> {
 }
 
 pub trait Transport {
+    fn identifier(&self, leased: u16) -> u16 {
+        leased
+    }
+    fn parse_reply(&self, bytes: &[u8], source: IpAddr, expected: &Expected<'_>) -> Option<Reply> {
+        packet::parse(bytes, source, expected)
+    }
     fn send(&mut self, packet: &[u8], target: IpAddr) -> io::Result<()>;
     fn receive(&mut self, bytes: &mut [u8], wait: Duration) -> io::Result<(usize, IpAddr)>;
 }
@@ -87,10 +93,58 @@ fn macos_socket<S>(target: IpAddr, mut create: impl FnMut(Type) -> io::Result<S>
     }
 }
 
+// Only creation permission errors select the fallback. Setup/send/receive errors
+// from an already-created raw socket must never switch transports.
+#[cfg(any(target_os = "linux", test))]
+fn linux_socket<S>(mut create: impl FnMut(Type) -> io::Result<S>) -> Result<(S, bool), String> {
+    match create(Type::RAW) {
+        Ok(socket) => Ok((socket, false)),
+        Err(raw) if raw.kind() == io::ErrorKind::PermissionDenied => {
+            create(Type::DGRAM).map(|socket| (socket, true)).map_err(|fallback| format!(
+                "ICMP raw socket creation denied ({raw}); Linux ICMP ping socket creation failed ({fallback}); inspect /proc/sys/net/ipv4/ping_group_range and permit a service group, or grant CAP_NET_RAW/root for raw ICMP"
+            ))
+        }
+        Err(error) => Err(operation_error("socket creation", &error)),
+    }
+}
+
+pub fn open(target: IpAddr, options: &Options) -> Result<(Box<dyn Transport>, IpAddr), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let (socket, ping) = linux_socket(|kind| {
+            Socket::new(
+                if target.is_ipv4() {
+                    Domain::IPV4
+                } else {
+                    Domain::IPV6
+                },
+                kind,
+                Some(if target.is_ipv4() {
+                    Protocol::ICMPV4
+                } else {
+                    Protocol::ICMPV6
+                }),
+            )
+        })?;
+        if ping {
+            let (transport, local) = crate::linux::Ping::open(socket, target, options)?;
+            return Ok((Box::new(transport), local));
+        }
+        let (transport, local) = Raw::from_socket(socket, target, options)?;
+        Ok((Box::new(transport), local))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let (transport, local) = Raw::open(target, options)?;
+        Ok((Box::new(transport), local))
+    }
+}
+
 pub struct Raw {
     socket: UdpSocket,
 }
 impl Raw {
+    #[cfg(any(not(target_os = "linux"), test))]
     pub fn open(target: IpAddr, options: &Options) -> Result<(Self, IpAddr), String> {
         let domain = if target.is_ipv4() {
             Domain::IPV4
@@ -108,6 +162,13 @@ impl Raw {
         #[cfg(not(target_os = "macos"))]
         let socket = create(Type::RAW);
         let socket = socket.map_err(|e| operation_error("socket creation", &e))?;
+        Self::from_socket(socket, target, options)
+    }
+    pub(crate) fn from_socket(
+        socket: Socket,
+        target: IpAddr,
+        options: &Options,
+    ) -> Result<(Self, IpAddr), String> {
         if target.is_ipv4() {
             socket.set_ttl_v4(options.ttl)
         } else {
@@ -172,7 +233,7 @@ impl Transport for Raw {
     }
 }
 
-pub fn probe<T: Transport>(
+pub fn probe<T: Transport + ?Sized>(
     transport: &mut T,
     target: IpAddr,
     local: IpAddr,
@@ -184,6 +245,7 @@ pub fn probe<T: Transport>(
     if payload.len() != options.payload_size {
         return Err("Invalid internal ICMP payload length".into());
     }
+    let id = transport.identifier(id);
     let mut bytes = vec![0u8; 65535];
     for seq in 1..=options.attempts {
         let packet = packet::echo(target, local, id, seq, payload);
@@ -205,7 +267,7 @@ pub fn probe<T: Transport>(
                     if length > bytes.len() {
                         return Err("ICMP receive returned invalid length".into());
                     }
-                    match packet::parse(
+                    match transport.parse_reply(
                         &bytes[..length],
                         source,
                         &Expected {
@@ -253,6 +315,58 @@ pub fn probe<T: Transport>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linux_fallback_policy() {
+        for error in [
+            None,
+            Some(io::ErrorKind::PermissionDenied),
+            Some(io::ErrorKind::Other),
+            Some(io::ErrorKind::Unsupported),
+            Some(io::ErrorKind::OutOfMemory),
+        ] {
+            let mut calls = Vec::new();
+            let result = linux_socket(|kind| {
+                calls.push(kind);
+                if kind == Type::RAW {
+                    if let Some(error) = error {
+                        return Err(io::Error::from(error));
+                    }
+                }
+                Ok(42)
+            });
+            let fallback = error == Some(io::ErrorKind::PermissionDenied);
+            assert_eq!(
+                calls,
+                if fallback {
+                    vec![Type::RAW, Type::DGRAM]
+                } else {
+                    vec![Type::RAW]
+                }
+            );
+            if error.is_none() || fallback {
+                assert_eq!(result.unwrap(), (42, fallback));
+            } else {
+                assert!(result.is_err());
+            }
+        }
+        for code in [1, 13] {
+            let mut calls = 0;
+            let error = linux_socket::<()>(|_| {
+                calls += 1;
+                Err(io::Error::from_raw_os_error(if calls == 1 {
+                    code
+                } else {
+                    97
+                }))
+            })
+            .unwrap_err();
+            assert_eq!(calls, 2);
+            assert!(error.contains("raw socket creation denied"));
+            assert!(error.contains("ping_group_range"));
+            assert!(error.contains("97"));
+        }
+    }
+
     #[test]
     fn macos_fallback_policy() {
         for address in ["127.0.0.1", "::1"] {

@@ -1,5 +1,7 @@
 mod engine;
 mod identifier;
+#[cfg(target_os = "linux")]
+mod linux;
 mod packet;
 use napi::{bindgen_prelude::AsyncTask, Env, Error, Result, Status, Task};
 use napi_derive::napi;
@@ -35,9 +37,9 @@ impl Task for PingTask {
         let mut payload = vec![0u8; options.payload_size];
         getrandom::fill(&mut payload)
             .map_err(|e| Error::new(Status::GenericFailure, format!("ICMP random payload: {e}")))?;
-        let (mut socket, local) = engine::Raw::open(target, &options)
-            .map_err(|e| Error::new(Status::GenericFailure, e))?;
-        engine::probe(&mut socket, target, local, lease.0, &payload, &options)
+        let (mut socket, local) =
+            engine::open(target, &options).map_err(|e| Error::new(Status::GenericFailure, e))?;
+        engine::probe(&mut *socket, target, local, lease.0, &payload, &options)
             .map_err(|e| Error::new(Status::GenericFailure, e))
         // socket and identifier lease drop before compute returns to Node-API.
     }
