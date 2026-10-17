@@ -37,6 +37,22 @@ jobs:
       - run: cargo test --locked
       - name: Raw and capability-free IPv4/IPv6 ping sockets in isolated network namespace
         run: bash scripts/test-linux-ping.sh
+  windows-echo:
+    name: Windows standard-user Echo (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify creation denial and actual standard-user IPv4/IPv6 Echo
+        shell: pwsh
+        run: ./scripts/test-windows-echo.ps1
   prebuild:
     needs: checks
     name: ${{ matrix.target }}
@@ -73,10 +89,6 @@ jobs:
       - name: Windows deterministic tests and native handle error cleanup
         if: runner.os == 'Windows'
         run: cargo test --locked -- --test-threads=1
-      - name: Verify standard-user Windows IPv4/IPv6 Echo fallback
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/test-windows-echo.ps1
       - name: Verify unprivileged macOS IPv4 fallback
         if: runner.os == 'macOS'
         run: cargo test --locked macos_unprivileged_ipv4_echo -- --ignored

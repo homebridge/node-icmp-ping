@@ -26,12 +26,14 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 try {
     whoami /all | Out-File identity.txt
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    if (([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Test process is elevated' }
     & .\echo-tests.exe windows::tests::windows_unprivileged_echo --ignored --exact --nocapture --test-threads=1 *> result.txt
     $code = $LASTEXITCODE
-    if ($code -eq 0) {
-        & .\echo-tests.exe windows::tests::real_handle_cleanup_on_api_error --exact --nocapture --test-threads=1 *>> result.txt
-        $code = $LASTEXITCODE
-    }
+    # Always gather actual API evidence, even when the strict creation-denial
+    # prerequisite fails. Preserve failure; direct API success cannot mask it.
+    & .\echo-tests.exe windows::tests::windows_unprivileged_api --ignored --exact --nocapture --test-threads=1 *>> result.txt
+    if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE }
     [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'exit.txt'), [string]$code)
 } catch {
     $_ | Out-File result.txt -Append

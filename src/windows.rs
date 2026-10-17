@@ -541,19 +541,53 @@ mod tests {
     #[test]
     #[ignore = "requires a standard Windows user; run scripts/test-windows-echo.ps1"]
     fn windows_unprivileged_echo() {
-        for (domain, protocol) in [
-            (Domain::IPV4, Protocol::ICMPV4),
-            (Domain::IPV6, Protocol::ICMPV6),
+        let mut denied = true;
+        for (domain, protocol, address) in [
+            (Domain::IPV4, Protocol::ICMPV4, "127.0.0.1"),
+            (Domain::IPV6, Protocol::ICMPV6, "::1"),
         ] {
-            let error = Socket::new(domain, Type::RAW, Some(protocol)).unwrap_err();
-            assert_eq!(error.raw_os_error(), Some(10013), "{error}");
+            match Socket::new(domain, Type::RAW, Some(protocol)) {
+                Err(error) => {
+                    println!("{address}: raw creation: {error}");
+                    denied &= error.raw_os_error() == Some(10013);
+                }
+                Ok(socket) => {
+                    denied = false;
+                    println!("{address}: raw creation SUCCEEDED under standard user");
+                    match Raw::from_socket(socket, address.parse().unwrap(), &Options::default()) {
+                        Ok(_) => println!("{address}: raw setup also succeeded"),
+                        Err(error) => println!("{address}: raw setup: {error}"),
+                    }
+                }
+            }
         }
+        assert!(denied, "This runner does not demonstrate creation-time WSAEACCES for both families; production fallback selection remains unverified");
+        unprivileged_echo_case(false);
+    }
+
+    // Separate real API coverage must not be confused with proof that the
+    // production creation-only selector is reachable on a particular runner.
+    #[test]
+    #[ignore = "requires a standard Windows user; run scripts/test-windows-echo.ps1"]
+    fn windows_unprivileged_api() {
+        unprivileged_echo_case(true);
+        real_handle_cleanup_on_api_error();
+    }
+
+    fn unprivileged_echo_case(direct_api: bool) {
         let run = |target: IpAddr, size| {
             let options = Options {
                 payload_size: size,
                 ..Options::default()
             };
-            let (mut transport, local) = open(target, &options).unwrap();
+            let (mut transport, local): (Box<dyn Transport>, IpAddr) = if direct_api {
+                (
+                    Box::new(Echo::new(Native::open(target, &options).unwrap(), target)),
+                    target,
+                )
+            } else {
+                open(target, &options).unwrap()
+            };
             let payload: Vec<u8> = (0..size).map(|i| (i ^ size) as u8).collect();
             let result = probe(&mut *transport, target, local, 7, &payload, &options).unwrap();
             assert!(result.latency.is_some(), "{target}: {}", result.message);
@@ -577,7 +611,7 @@ mod tests {
             "handle growth: {before} -> {}",
             handles()
         );
-        println!("Confirmed WSAEACCES and IPv4/IPv6 fallback, 160 concurrent variable-payload calls; handles {before} -> {}", handles());
+        println!("IPv4/IPv6 Echo passed (direct API: {direct_api}), 160 calls in concurrent batches; handles {before} -> {}", handles());
     }
 
     #[test]

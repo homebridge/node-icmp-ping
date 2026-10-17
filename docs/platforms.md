@@ -146,3 +146,10 @@ Negative status categories and late/timeout responses are deterministic fixtures
 CI does not manufacture router ICMP errors or depend on Internet addresses.
 Loopback does not establish compatibility with every firewall/service policy,
 remote network or older Windows release.
+
+Current validation blocker (Windows Server 2025 x64 / Windows 11 arm64 hosted
+runners): raw creation succeeds even under the harness's standard-user token.
+The strict creation-denial assertion remains a failing gate; it is not skipped
+or replaced by a simulated denial. A separate direct-API integration case runs
+under the same account to distinguish API functionality from automatic selector
+coverage. That case cannot establish that the creation-only fallback is reachable.
