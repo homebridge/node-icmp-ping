@@ -238,6 +238,27 @@ fn parse_error(
     }))
 }
 
+// Process readiness after checking MSG_ERRQUEUE. A bare pending errno has no
+// sequence/payload evidence, so it must reject rather than become a negative reply.
+fn poll_event(
+    revents: libc::c_short,
+    queued: Option<(usize, IpAddr)>,
+    take_error: impl FnOnce() -> io::Result<Option<io::Error>>,
+) -> io::Result<Option<(usize, IpAddr)>> {
+    if queued.is_some() {
+        return Ok(queued);
+    }
+    if revents & libc::POLLNVAL != 0 {
+        return Err(io::Error::other("Invalid ping socket"));
+    }
+    if revents & libc::POLLIN == 0 {
+        if let Some(error) = take_error()? {
+            return Err(io::Error::other(error));
+        }
+    }
+    Ok(None)
+}
+
 impl Transport for Ping {
     fn identifier(&self, _: u16) -> u16 {
         self.id
@@ -322,14 +343,11 @@ impl Transport for Ping {
             if ready == 0 {
                 return Err(io::ErrorKind::TimedOut.into());
             }
-            if let Some(event) = self.queued_error(bytes)? {
+            let queued = self.queued_error(bytes)?;
+            if let Some(event) = poll_event(fd.revents, queued, || self.socket.take_error())? {
                 return Ok(event);
             }
-            if fd.revents & libc::POLLNVAL != 0 {
-                return Err(io::Error::other("Invalid ping socket"));
-            }
             if fd.revents & libc::POLLIN == 0 {
-                self.socket.take_error()?;
                 continue;
             }
             // Only this invocation receives from this socket. A bounded timeout
@@ -373,6 +391,60 @@ mod tests {
     use super::*;
     use crate::engine::{self, probe};
     use socket2::{Domain, Protocol, Type};
+
+    #[test]
+    fn pollerr_without_queued_record_rejects_pending_error() {
+        struct PendingError;
+        impl Transport for PendingError {
+            fn send(&mut self, _: &[u8], _: IpAddr) -> io::Result<()> {
+                Ok(())
+            }
+            fn receive(&mut self, _: &mut [u8], _: Duration) -> io::Result<(usize, IpAddr)> {
+                // Deterministically model POLLERR, no POLLIN, and empty MSG_ERRQUEUE.
+                let error = poll_event(libc::POLLERR, None, || {
+                    Ok(Some(io::Error::from_raw_os_error(libc::EHOSTUNREACH)))
+                })
+                .unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::Other);
+                assert_eq!(error.raw_os_error(), None);
+                assert_eq!(
+                    error
+                        .get_ref()
+                        .unwrap()
+                        .downcast_ref::<io::Error>()
+                        .unwrap()
+                        .raw_os_error(),
+                    Some(libc::EHOSTUNREACH)
+                );
+                Err(error)
+            }
+        }
+        let address = "127.0.0.1".parse().unwrap();
+        let result = probe(
+            &mut PendingError,
+            address,
+            address,
+            42,
+            &[7; 56],
+            &Options::default(),
+        );
+        // The engine must reject, not return a matched negative or a timeout.
+        let error = result.unwrap_err();
+        assert!(error.starts_with("ICMP receive: "), "{error}");
+        assert!(error.contains(&io::Error::from_raw_os_error(libc::EHOSTUNREACH).to_string()));
+    }
+
+    #[test]
+    fn pollerr_without_queued_record_or_pending_error_continues() {
+        let mut checked = false;
+        let event = poll_event(libc::POLLERR, None, || {
+            checked = true;
+            Ok(None)
+        })
+        .unwrap();
+        assert!(checked);
+        assert_eq!(event, None);
+    }
 
     #[test]
     fn error_queue_correlation() {
