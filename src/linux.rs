@@ -106,7 +106,7 @@ impl Ping {
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = control.as_mut_ptr().cast();
-        msg.msg_controllen = size_of_val(&control);
+        msg.msg_controllen = size_of_val(&control) as _;
         // SAFETY: all buffers above remain live and writable for the syscall.
         let length = unsafe {
             libc::recvmsg(
@@ -145,10 +145,13 @@ impl Ping {
                         && header.cmsg_type == libc::IPV6_RECVERR
                 };
                 let base = libc::CMSG_LEN(0) as usize;
-                if relevant && header.cmsg_len >= base + size_of::<libc::sock_extended_err>() {
+                // glibc uses size_t, musl uses socklen_t for these lengths.
+                #[allow(clippy::unnecessary_cast)]
+                let cmsg_len = header.cmsg_len as usize;
+                if relevant && cmsg_len >= base + size_of::<libc::sock_extended_err>() {
                     let data = libc::CMSG_DATA(cmsg);
                     let error = data.cast::<libc::sock_extended_err>().read_unaligned();
-                    let available = header.cmsg_len - base - size_of::<libc::sock_extended_err>();
+                    let available = cmsg_len - base - size_of::<libc::sock_extended_err>();
                     let mut offender: libc::sockaddr_storage = mem::zeroed();
                     let count = available.min(size_of::<libc::sockaddr_storage>());
                     std::ptr::copy_nonoverlapping(

@@ -112,8 +112,23 @@ jobs:
               rustc --version --verbose
               test "$(rustc -vV | sed -n "s/^host: //p")" = "$TARGET"
               cargo --version
+              cargo test --locked
               npm ci
               npm run build -- --target "$TARGET"
+            '
+      - name: Verify unprivileged IPv4/IPv6 Echo on native musl
+        run: |
+          docker run --rm --cap-drop=ALL --user 65534:65534 \
+            --sysctl 'net.ipv4.ping_group_range=65534 65534' \
+            -e ICMP_LINUX_TEST_MODE=echo -v "$PWD:/work:ro" icmp-musl sh -ec '
+              found=0
+              for executable in target/debug/deps/node_icmp_ping-*; do
+                if test -f "$executable" && test -x "$executable"; then
+                  "$executable" linux::tests::linux_socket_integration --ignored --exact --nocapture
+                  found=$((found + 1))
+                fi
+              done
+              test "$found" = 1
             '
       - uses: actions/upload-artifact@v7
         with:

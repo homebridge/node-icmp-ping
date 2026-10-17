@@ -22,8 +22,8 @@ Node 22/24/26 are supported; CI exercises only the newest supported major, 26.
 See [releasing](releasing.md) for assembly and publication details.
 
 Echo uses raw ICMP first, with permission-triggered ICMP datagram fallbacks on Linux (IPv4/IPv6) and macOS (IPv4).
-The full IPv4/IPv6 tests require raw-socket privileges and do not skip
-permission failures. Windows needs Administrator privileges; Windows IP Helper
+Installed-package CI smoke tests run with raw-socket privileges and do not skip
+permission failures. Separate Linux tests explicitly remove raw privileges. Windows needs Administrator privileges; Windows IP Helper
 Echo APIs are not used. Smoke tests install the assembled tarball offline with
 scripts disabled, then exercise the installed addon. Resource tests perform 64
 sequential calls and bounded worker shutdown; descriptor counts are checked on
@@ -37,7 +37,6 @@ Linux glibc builds use Ubuntu 24.04 and may require that glibc baseline. Musl us
 Alpine 3.23; older Alpine compatibility is not established. macOS deployment
 minimums follow CI SDK defaults. Compatibility with older operating systems needs
 its own evidence.
-
 
 ## Linux ping socket fallback audit and tests
 
@@ -63,7 +62,9 @@ quoted Echo and extended ICMP error metadata. We check origin/family, destinatio
 identifier, sequence, checksum and every available payload byte before accepting
 a negative result. Truncated ancillary data and short/mismatched quotes are
 ignored. The kernel validates the incoming error packet; userspace does not receive
-its original outer checksum. A bare asynchronous errno cannot supply this evidence and rejects the operation rather than declaring a matched negative. A send interrupted by a queued stale error gets one bounded syscall retry.
+its original outer checksum. A bare asynchronous errno cannot supply this evidence
+and rejects the operation rather than declaring a matched negative. A send
+interrupted by a queued stale error gets one bounded syscall retry.
 The same negative reason mapping applies to raw packets and ping error metadata.
 
 Reference implementations: Linux [IPv4 ping socket handling](https://github.com/torvalds/linux/blob/v6.12/net/ipv4/ping.c),
@@ -85,5 +86,7 @@ identifier/destination/payload, corruption, malformed addresses, all supported
 negative types, and odd payload checksums. Real namespace tests exercise
 administrative rejection; deterministic fixtures cover other negative categories.
 They do not emulate every router, security module, container policy or IPv6
-extension configuration. Native musl builds and existing privileged package smoke
-checks remain in CI; namespace fallback coverage is on glibc Linux.
+extension configuration. Native musl x64/arm64 CI also runs deterministic tests
+and the real Echo/concurrency/cleanup case as UID/GID 65534 with all capabilities
+dropped and an explicit ping group range. Full firewall/timeout namespace coverage
+is on glibc Linux. Existing privileged installed-package smoke checks remain.
