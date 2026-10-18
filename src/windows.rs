@@ -592,26 +592,45 @@ mod tests {
             let result = probe(&mut *transport, target, local, 7, &payload, &options).unwrap();
             assert!(result.latency.is_some(), "{target}: {}", result.message);
         };
-        // Warm up Winsock and IP Helper before measuring process handles.
-        for target in ["127.0.0.1", "::1"] {
-            run(target.parse().unwrap(), 56);
-        }
-        let before = handles();
-        for _ in 0..20 {
-            std::thread::scope(|scope| {
-                for target in ["127.0.0.1", "::1"] {
-                    for size in [16, 56, 57, 1200] {
-                        scope.spawn(move || run(target.parse().unwrap(), size));
-                    }
+        // Keep the same eight threads alive at both measurements. Thread
+        // creation and IP Helper's first concurrent use can allocate process
+        // handles unrelated to an invocation's Echo handle.
+        let barrier = std::sync::Barrier::new(9);
+        let (before, after) = std::thread::scope(|scope| {
+            for target in ["127.0.0.1", "::1"] {
+                for size in [16, 56, 57, 1200] {
+                    let barrier = &barrier;
+                    let run = &run;
+                    scope.spawn(move || {
+                        let warmup =
+                            std::panic::catch_unwind(|| run(target.parse().unwrap(), size));
+                        barrier.wait();
+                        barrier.wait();
+                        let ready = warmup.is_ok();
+                        let repeated = std::panic::catch_unwind(|| {
+                            if ready {
+                                for _ in 0..20 {
+                                    run(target.parse().unwrap(), size);
+                                }
+                            }
+                        });
+                        barrier.wait();
+                        barrier.wait();
+                        warmup.unwrap();
+                        repeated.unwrap();
+                    });
                 }
-            });
-        }
-        assert!(
-            handles() <= before + 2,
-            "handle growth: {before} -> {}",
-            handles()
-        );
-        println!("IPv4/IPv6 Echo passed (direct API: {direct_api}), 160 calls in concurrent batches; handles {before} -> {}", handles());
+            }
+            barrier.wait();
+            let before = handles();
+            barrier.wait();
+            barrier.wait();
+            let after = handles();
+            barrier.wait();
+            (before, after)
+        });
+        assert!(after <= before + 2, "handle growth: {before} -> {after}");
+        println!("IPv4/IPv6 Echo passed (direct API: {direct_api}), 160 calls on eight warmed workers; handles {before} -> {after}");
     }
 
     #[test]

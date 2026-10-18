@@ -4,6 +4,10 @@ $ErrorActionPreference = 'Stop'
 $account = 'icmp_echo_ci'
 $root = Join-Path $env:PUBLIC ('icmp-echo-' + [guid]::NewGuid().ToString('N'))
 $password = 'Ic9!' + [guid]::NewGuid().ToString('N')
+# Read-only diagnostics for host policies that might permit raw sockets.
+foreach ($key in @('HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters', 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters', 'HKLM:\SYSTEM\CurrentControlSet\Services\Afd\Parameters')) {
+    Get-ItemProperty $key -Name AllowUserRawAccess, DisableRawSecurity -ErrorAction SilentlyContinue | Format-List
+}
 $created = $false
 $process = $null
 try {
