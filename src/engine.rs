@@ -349,6 +349,8 @@ mod tests {
                 assert!(result.is_err());
             }
         }
+        // These raw error numbers have Linux-specific meanings.
+        #[cfg(target_os = "linux")]
         for code in [1, 13] {
             let mut calls = 0;
             let error = linux_socket::<()>(|_| {
