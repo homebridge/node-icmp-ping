@@ -70,6 +70,8 @@ jobs:
           node -p "JSON.stringify({node:process.version,napi:process.versions.napi,arch:process.arch,platform:process.platform})"
           rustc --version --verbose
           cargo --version
+      - name: Run native unit tests
+        run: cargo test --locked
       - name: Verify unprivileged macOS IPv4 fallback
         if: runner.os == 'macOS'
         run: cargo test --locked macos_unprivileged_ipv4_echo -- --ignored
