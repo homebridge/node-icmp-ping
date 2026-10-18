@@ -121,9 +121,12 @@ impl Drop for Handle {
     fn drop(&mut self) {
         // SAFETY: exclusively owned successful Icmp[6]CreateFile result; all
         // synchronous requests finished before Drop. Close exactly once.
-        unsafe {
-            IcmpCloseHandle(self.0);
-        }
+        let _closed = unsafe { IcmpCloseHandle(self.0) };
+        #[cfg(test)]
+        assert_ne!(
+            _closed, 0,
+            "IcmpCloseHandle failed for an owned Echo handle"
+        );
     }
 }
 struct Native {
@@ -622,9 +625,13 @@ mod tests {
                 }
             }
             barrier.wait();
+            // Let all workers enter the idle barrier and OS deferred cleanup
+            // settle before sampling shared process-wide resources.
+            std::thread::sleep(Duration::from_millis(100));
             let before = handles();
             barrier.wait();
             barrier.wait();
+            std::thread::sleep(Duration::from_millis(100));
             let after = handles();
             barrier.wait();
             (before, after)

@@ -138,7 +138,9 @@ tests and actual invalid-handle API failures with repeated handle cleanup.
 `scripts/test-windows-echo.ps1` creates a disposable local standard user, copies the test executable to a temporary accessible directory,
 and launches it with that user’s credentials. Both families must first fail raw creation with
 10013; permission-based skips are forbidden. Loopback tests cover 16/56/57/1200
-payload bytes, 160 calls in concurrent batches, and process handle counts after warmup.
+payload bytes and 160 measured calls on eight persistent workers after a full
+160-call warmup. Process handle counts are sampled with workers idle, and every
+owned handle close must succeed in test builds.
 The standard-user process also repeats actual invalid-handle errors for both
 address families. The script removes its account and directory in `finally`.
 Existing elevated installed-package smoke tests retain raw-path coverage.
@@ -147,8 +149,8 @@ CI does not manufacture router ICMP errors or depend on Internet addresses.
 Loopback does not establish compatibility with every firewall/service policy,
 remote network or older Windows release.
 
-Current validation blocker (Windows Server 2025 x64 / Windows 11 arm64 hosted
-runners): raw creation succeeds even under the harness's standard-user token.
+Current validation blocker (Windows Server 2022/2025 x64 and Windows 11 arm64
+hosted runners): raw creation and setup succeed even under the harness's standard-user token.
 The strict creation-denial assertion remains a failing gate; it is not skipped
 or replaced by a simulated denial. A separate direct-API integration case runs
 under the same account to distinguish API functionality from automatic selector
